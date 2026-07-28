@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>股债性价比 - 量化择时</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+.chart-container { height: 500px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <h1><a href="index.html">量化择时</a></h1>
+    <nav>
+      <a href="index.html">首页</a>
+      <a href="stock_bond.html" class="active">股债性价比</a>
+      <a href="graham.html">格雷厄姆指数</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-title">
+    <h2>股债性价比</h2>
+    <p>1/PE_TTM &times; 100 &minus; 10年期国债收益率（%）&emsp;|&emsp;数值越大，股票相对债券越有吸引力</p>
+  </div>
+
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3>上证50</h3>
+      <div id="chart-sz50" class="chart-container"></div>
+    </div>
+    <div class="chart-card">
+      <h3>沪深300</h3>
+      <div id="chart-hs300" class="chart-container"></div>
+    </div>
+    <div class="chart-card">
+      <h3>中证500</h3>
+      <div id="chart-zz500" class="chart-container"></div>
+    </div>
+    <div class="chart-card">
+      <h3>中证1000</h3>
+      <div id="chart-zz1000" class="chart-container"></div>
+    </div>
+  </div>
+
+  <div id="data-source" class="data-source"></div>
+</main>
+
+<footer>
+  <p>数据来源：指数PE来自中证指数公司；收盘价来自东方财富；国债收益率来自 investing.com（均通过 akshare 获取）</p>
+  <p>仅供参考，不构成投资建议。</p>
+</footer>
+
+<script src="data/stock_bond_data.js"></script>
+<script>
+(function() {
+  var json = window.STOCK_BOND_DATA;
+  if (!json) {
+    document.querySelector('.charts-grid').innerHTML =
+      '<div class="error">数据未加载。请先运行 <code>python fetch_data.py</code> 生成数据文件。</div>';
+    return;
+  }
+
+  var INDEX_KEYS = ['上证50', '沪深300', '中证500', '中证1000'];
+  var CHART_IDS = ['chart-sz50', 'chart-hs300', 'chart-zz500', 'chart-zz1000'];
+  var MAIN_COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00'];
+  var CLOSE_COLOR = '#37474f';
+
+  function renderChart(containerId, data, mainColor) {
+    var dom = document.getElementById(containerId);
+    var chart = echarts.init(dom);
+
+    var spreadName = '股债性价比';
+    var pctName = '5年分位数';
+    var closeName = '收盘价';
+
+    var option = {
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' },
+        formatter: function(params) {
+          var s = params[0].axisValue + '<br/>';
+          params.forEach(function(p) {
+            if (p.seriesName === pctName) {
+              s += p.marker + ' ' + p.seriesName + ': ' + (p.value * 100).toFixed(1) + '%<br/>';
+            } else if (p.seriesName === closeName) {
+              s += p.marker + ' ' + p.seriesName + ': ' + p.value.toFixed(2) + '<br/>';
+            } else {
+              s += p.marker + ' ' + p.seriesName + ': ' + p.value.toFixed(2) + '<br/>';
+            }
+          });
+          return s;
+        }
+      },
+      legend: {
+        data: [spreadName, pctName, closeName],
+        top: 5
+      },
+      grid: { left: 60, right: 70, top: 50, bottom: 40 },
+      xAxis: {
+        type: 'category',
+        data: data.dates,
+        axisLabel: {
+          formatter: function(v) { return v.slice(0, 7); },
+          fontSize: 10,
+          interval: Math.floor(data.dates.length / 12)
+        }
+      },
+      yAxis: [
+        {
+          type: 'value',
+          name: spreadName,
+          position: 'left',
+          nameTextStyle: { fontSize: 11 },
+          axisLabel: { fontSize: 10 },
+          splitLine: { show: true }
+        },
+        {
+          type: 'value',
+          name: closeName,
+          position: 'right',
+          nameTextStyle: { fontSize: 11 },
+          axisLabel: { fontSize: 10 },
+          splitLine: { show: false },
+          scale: true
+        }
+      ],
+      series: [
+        {
+          name: spreadName,
+          type: 'line',
+          data: data.stock_bond_spread,
+          yAxisIndex: 0,
+          smooth: true,
+          lineStyle: { color: mainColor, width: 2 },
+          itemStyle: { color: mainColor },
+          symbol: 'none',
+          markLine: {
+            silent: true,
+            symbol: 'none',
+            lineStyle: { color: mainColor, type: 'dashed', width: 1.5 },
+            label: {
+              formatter: function(p) { return '股债性价比: ' + p.value.toFixed(2); },
+              position: 'end',
+              fontSize: 11,
+              color: mainColor
+            },
+            data: [{ yAxis: data.latest_stock_bond_spread }]
+          }
+        },
+        {
+          name: pctName,
+          type: 'line',
+          data: data.percentile,
+          yAxisIndex: 0,
+          smooth: true,
+          lineStyle: { color: '#78909c', width: 1.5, type: 'dashed' },
+          itemStyle: { color: '#78909c' },
+          symbol: 'none',
+          markLine: {
+            silent: true,
+            symbol: 'none',
+            lineStyle: { color: '#78909c', type: 'dashed', width: 1.5 },
+            label: {
+              formatter: function(p) { return '分位: ' + (p.value * 100).toFixed(1) + '%'; },
+              position: 'end',
+              fontSize: 11,
+              color: '#78909c'
+            },
+            data: [{ yAxis: data.latest_percentile }]
+          }
+        },
+        {
+          name: closeName,
+          type: 'line',
+          data: data.close,
+          yAxisIndex: 1,
+          smooth: true,
+          lineStyle: { color: CLOSE_COLOR, width: 1.5 },
+          itemStyle: { color: CLOSE_COLOR },
+          symbol: 'none'
+        }
+      ]
+    };
+
+    chart.setOption(option);
+    window.addEventListener('resize', function() { chart.resize(); });
+  }
+
+  INDEX_KEYS.forEach(function(key, i) {
+    if (json[key]) {
+      renderChart(CHART_IDS[i], json[key], MAIN_COLORS[i]);
+    }
+  });
+  if (json['上证50']) {
+    document.getElementById('data-source').textContent =
+      '数据来源：' + json['上证50'].data_source + ' | 最新数据日期：' + json['上证50'].latest_date;
+  }
+})();
+</script>
+</body>
+</html>

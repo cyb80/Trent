@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>量化择时</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+  <div class="container">
+    <h1><a href="index.html">量化择时</a></h1>
+    <nav>
+      <a href="index.html" class="active">首页</a>
+      <a href="stock_bond.html">股债性价比</a>
+      <a href="graham.html">格雷厄姆指数</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <div class="hero">
+    <h2>量化择时工具</h2>
+    <p>基于指数 PE_TTM 与 10 年期国债收益率，计算股债性价比和格雷厄姆指数，辅助判断市场估值水平。</p>
+  </div>
+
+  <div class="cards">
+    <a href="stock_bond.html" class="card">
+      <div class="icon">&#x1F4C8;</div>
+      <h3>股债性价比</h3>
+      <p>1/PE_TTM &times; 100 &minus; 10年期国债收益率（%）</p>
+      <p>覆盖上证50、沪深300、中证500、中证1000</p>
+      <span class="badge">查看图表 &rarr;</span>
+    </a>
+
+    <a href="graham.html" class="card">
+      <div class="icon">&#x1F4CA;</div>
+      <h3>格雷厄姆指数</h3>
+      <p>10年期国债收益率（%）/ PE_TTM</p>
+      <p>覆盖上证50、沪深300、中证500、中证1000</p>
+      <span class="badge">查看图表 &rarr;</span>
+    </a>
+  </div>
+
+  <div class="update-info">
+    <p>数据每日自动更新 | 通过 GitHub Actions 部署</p>
+  </div>
+</main>
+
+<footer>
+  <p>数据来源：指数PE来自中证指数公司；收盘价来自东方财富；国债收益率来自 investing.com（均通过 akshare 获取）</p>
+  <p>仅供参考，不构成投资建议。</p>
+</footer>
+</body>
+</html>
