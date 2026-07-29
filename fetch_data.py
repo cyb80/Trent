@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """量化择时数据获取脚本
 
-数据源 (均通过 akshare):
-  指数 PE_TTM & 收盘价 → legulegu.com (stock_index_pe_lg)
-  国债收益率          → investing.com (bond_zh_us_rate)
+数据源:
+  指数 PE_TTM & 收盘价 & 国债收益率 → data/指数行情序列.xlsx
+  （xlsx由 fetch_rsrs.py 每日统一更新）
 """
 
 import json
@@ -11,54 +11,23 @@ import os
 import sys
 from datetime import datetime
 
-import akshare as ak
 import numpy as np
 import pandas as pd
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+XLSX_PATH = os.path.join(DATA_DIR, '指数行情序列.xlsx')
 
-# legulegu 支持的中文名称
-LG_NAMES = ['上证50', '沪深300', '中证500', '中证1000']
-
-
-def fetch_bond_yield():
-    """获取10年期中国国债收益率"""
-    print('  正在获取国债收益率数据...')
-    df = ak.bond_zh_us_rate()
-    df = df[['日期', '中国国债收益率10年']].copy()
-    df.columns = ['date', 'bond_yield']
-    df['date'] = pd.to_datetime(df['date'])
-    df['bond_yield'] = pd.to_numeric(df['bond_yield'], errors='coerce')
-    df = df.dropna(subset=['bond_yield'])
-    df = df.sort_values('date').reset_index(drop=True)
-    print(f'  获取到 {len(df)} 条, 日期: {df["date"].min().date()} ~ {df["date"].max().date()}')
-    return df
-
-
-def fetch_index_pe_close(name_cn):
-    """从 legulegu 获取指数 PE_TTM 与收盘价"""
-    print(f'  正在获取 {name_cn} 数据...')
-    df = ak.stock_index_pe_lg(symbol=name_cn)
-    # 列: 日期, 指数(收盘价), 等权静态市盈率, 静态市盈率, 静态市盈率中位数,
-    #     等权滚动市盈率, 滚动市盈率(PE_TTM), 滚动市盈率中位数
-    df = df[['日期', '指数', '滚动市盈率']].copy()
-    df.columns = ['date', 'close', 'pe_ttm']
-    df['date'] = pd.to_datetime(df['date'])
-    df['close'] = pd.to_numeric(df['close'], errors='coerce')
-    df['pe_ttm'] = pd.to_numeric(df['pe_ttm'], errors='coerce')
-    df = df.dropna(subset=['pe_ttm', 'close'])
-    df = df[df['pe_ttm'] > 0]
-    df = df.sort_values('date').reset_index(drop=True)
-    print(f'    {len(df)} 条, {df["date"].min().date()} ~ {df["date"].max().date()}')
-    return df
+# 指数配置: (sheet名关键词, 显示名)
+INDEX_CONFIG = [
+    ('000016', '上证50'),
+    ('000300', '沪深300'),
+    ('000905', '中证500'),
+    ('000852', '中证1000'),
+]
 
 
 def calc_rolling_percentile(series, window_years=5):
-    """计算滚动N年历史分位数
-
-    分位数 = (当前值在窗口内的排名 - 1) / (窗口内有效值个数 - 1)
-    排名按升序（值越大排名越大）。
-    """
+    """计算滚动N年历史分位数"""
     result = pd.Series(np.nan, index=series.index)
     for i in range(len(series)):
         current_date = series.index[i]
@@ -70,41 +39,126 @@ def calc_rolling_percentile(series, window_years=5):
     return result
 
 
+def read_index_data(dict_data, sheet_key):
+    """从xlsx读取指定指数的 CLOSE 和 PE_TTM"""
+    sheet_name = None
+    for sn in dict_data.keys():
+        if sheet_key in sn:
+            sheet_name = sn
+            break
+    if sheet_name is None:
+        return None
+
+    df = dict_data[sheet_name].copy()
+    df.index = pd.to_datetime(df.index)
+
+    # 标准化列名
+    col_map = {}
+    for c in df.columns:
+        cu = c.upper().strip()
+        if cu in ('CLOSE', '收盘价', '收盘'):
+            col_map[c] = 'close'
+        elif cu in ('PE_TTM', '滚动市盈率', '滚动市盈率'):
+            col_map[c] = 'pe_ttm'
+    df = df.rename(columns=col_map)
+
+    if 'close' not in df.columns or 'pe_ttm' not in df.columns:
+        return None
+
+    df = df[['close', 'pe_ttm']].dropna()
+    df['close'] = pd.to_numeric(df['close'], errors='coerce')
+    df['pe_ttm'] = pd.to_numeric(df['pe_ttm'], errors='coerce')
+    df = df.dropna()
+    df = df[df['pe_ttm'] > 0]
+    df = df.sort_index()
+    return df
+
+
 def main():
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print('=' * 60)
-    print('量化择时数据获取')
+    print('量化择时数据获取（从xlsx读取）')
     print(f'运行时间: {now_str}')
-    print(f'pandas: {pd.__version__}, akshare: {ak.__version__}')
+    print(f'pandas: {pd.__version__}')
     print('=' * 60)
 
-    # 1. 国债收益率
-    print('\n[1/3] 获取国债收益率...')
-    bond = fetch_bond_yield()
+    if not os.path.exists(XLSX_PATH):
+        print(f'\n[错误] xlsx文件不存在: {XLSX_PATH}')
+        print('请先运行 python fetch_rsrs.py 生成/更新数据文件')
+        sys.exit(1)
 
-    # 2. 指数 PE & 收盘价
-    print('\n[2/3] 获取指数 PE 及收盘价...')
+    # 1. 读取xlsx
+    print('\n[1/3] 从xlsx读取数据...')
+    dict_data = pd.read_excel(XLSX_PATH, index_col=0, sheet_name=None)
+    print(f'  读取到 {len(dict_data)} 个sheet: {list(dict_data.keys())}')
+
+    # 2. 提取并计算
+    print('\n[2/3] 计算指标...')
+    bond_sheet = '国债收益率'
+    if bond_sheet in dict_data:
+        bond_df = dict_data[bond_sheet].copy()
+        bond_df.index = pd.to_datetime(bond_df.index)
+        # 列名可能是 'bond_yield' 或 '中国国债收益率10年'，统一处理
+        bond_col = None
+        for c in bond_df.columns:
+            cu = c.upper().strip()
+            if '10' in cu or '国债' in cu or 'BOND' in cu or 'YIELD' in cu:
+                bond_col = c
+                break
+        if bond_col is None:
+            print(f'  [错误] 国债收益率sheet中未找到收益率列')
+            bond_df = None
+        else:
+            bond_df = bond_df[[bond_col]].rename(columns={bond_col: 'bond_yield'})
+            bond_df['bond_yield'] = pd.to_numeric(bond_df['bond_yield'], errors='coerce')
+            bond_df = bond_df.dropna()
+            print(f'  国债收益率: {len(bond_df)} 条, {bond_df.index.min().date()} ~ {bond_df.index.max().date()}')
+    else:
+        print(f'  [错误] xlsx中未找到"{bond_sheet}" sheet')
+        bond_df = None
+
+    if bond_df is None or len(bond_df) == 0:
+        print('\n国债收益率数据不可用，股债性价比和格雷厄姆指数无法计算')
+        sys.exit(1)
+
     all_data = {}
-    for name_cn in LG_NAMES:
-        print(f'\n  {name_cn}:')
-        pe_close = fetch_index_pe_close(name_cn)
-        df = pd.merge(pe_close, bond, on='date', how='inner')
-        df = df.sort_values('date').reset_index(drop=True)
-        print(f'    合并后: {len(df)} 条')
+    for sheet_key, display_name in INDEX_CONFIG:
+        print(f'\n  {display_name}:')
+        df = read_index_data(dict_data, sheet_key)
+        if df is None:
+            print(f'    未找到对应sheet或缺少close/pe_ttm列')
+            continue
+
+        print(f'    指数数据: {len(df)} 条, {df.index.min().date()} ~ {df.index.max().date()}')
+
+        # 与国债收益率合并
+        merged = pd.merge(
+            df, bond_df, left_index=True, right_index=True, how='inner'
+        ).sort_index().reset_index()
+        merged = merged.rename(columns={'index': 'date'})
+        print(f'    合并后: {len(merged)} 条')
+
+        if len(merged) < 2:
+            print(f'    数据不足，跳过')
+            continue
 
         # 股债性价比 = 1/PE_TTM * 100 - 国债收益率(%)
-        df['stock_bond_spread'] = (1.0 / df['pe_ttm']) * 100 - df['bond_yield']
+        merged['stock_bond_spread'] = (1.0 / merged['pe_ttm']) * 100 - merged['bond_yield']
         # 格雷厄姆指数 = 国债收益率(%) / PE_TTM
-        df['graham_index'] = df['bond_yield'] / df['pe_ttm']
+        merged['graham_index'] = merged['bond_yield'] / merged['pe_ttm']
 
-        df = df.set_index('date')
-        df['stock_bond_percentile'] = calc_rolling_percentile(df['stock_bond_spread'], 5)
-        df['graham_percentile'] = calc_rolling_percentile(df['graham_index'], 5)
-        df = df.reset_index()
+        merged = merged.set_index('date')
+        merged['stock_bond_percentile'] = calc_rolling_percentile(merged['stock_bond_spread'], 5)
+        merged['graham_percentile'] = calc_rolling_percentile(merged['graham_index'], 5)
+        merged = merged.reset_index()
 
-        all_data[name_cn] = df
+        all_data[display_name] = merged
 
-    # 3. 保存两份 JSON
+    if not all_data:
+        print('\n无有效数据，退出')
+        sys.exit(1)
+
+    # 3. 输出JSON+JS
     print('\n[3/3] 保存数据文件...')
     os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -120,26 +174,15 @@ def main():
             'latest_close': float(df['close'].iloc[-1].round(2)),
             'latest_pe': round(float(df['pe_ttm'].iloc[-1]), 2),
             'latest_bond_yield': round(float(df['bond_yield'].iloc[-1]), 4),
-            'data_source': '指数PE及收盘价: legulegu.com; 国债收益率: investing.com (均通过 akshare)',
+            'data_source': '数据来源: 指数行情序列.xlsx (OHLCV:东方财富; PE:乐股乐股; 国债:investing.com)',
         }
 
     stock_bond = {}
     graham = {}
-    for name_cn, df in all_data.items():
-        stock_bond[name_cn] = _build_json(df, 'stock_bond_spread', 'stock_bond_spread', 'stock_bond_percentile')
-        graham[name_cn] = _build_json(df, 'graham_index', 'graham_index', 'graham_percentile')
+    for display_name, df in all_data.items():
+        stock_bond[display_name] = _build_json(df, 'stock_bond_spread', 'stock_bond_spread', 'stock_bond_percentile')
+        graham[display_name] = _build_json(df, 'graham_index', 'graham_index', 'graham_percentile')
 
-    path_sb = os.path.join(DATA_DIR, 'stock_bond.json')
-    with open(path_sb, 'w', encoding='utf-8') as f:
-        json.dump(stock_bond, f, ensure_ascii=False, indent=2)
-    print(f'  已保存: {path_sb}')
-
-    path_gr = os.path.join(DATA_DIR, 'graham.json')
-    with open(path_gr, 'w', encoding='utf-8') as f:
-        json.dump(graham, f, ensure_ascii=False, indent=2)
-    print(f'  已保存: {path_gr}')
-
-    # 同时输出 JS 数据文件（内嵌全局变量，避免 fetch 跨域问题）
     path_sb_js = os.path.join(DATA_DIR, 'stock_bond_data.js')
     with open(path_sb_js, 'w', encoding='utf-8') as f:
         f.write('window.STOCK_BOND_DATA = ')
@@ -158,13 +201,14 @@ def main():
     print('\n' + '=' * 60)
     print('数据汇总')
     print('=' * 60)
-    for name_cn in LG_NAMES:
-        d = stock_bond[name_cn]
-        dg = graham[name_cn]
-        print(f'\n{name_cn} ({d["latest_date"]}):')
-        print(f'  PE_TTM={d["latest_pe"]}, 国债={d["latest_bond_yield"]}%, 收盘={d["latest_close"]}')
-        print(f'  股债性价比={d["latest_stock_bond_spread"]}  分位数={d["latest_percentile"]}')
-        print(f'  格雷厄姆指数={dg["latest_graham_index"]}  分位数={dg["latest_percentile"]}')
+    for display_name in [n for _, n in INDEX_CONFIG]:
+        d = stock_bond.get(display_name)
+        dg = graham.get(display_name)
+        if d and dg:
+            print(f'\n{display_name} ({d["latest_date"]}):')
+            print(f'  PE_TTM={d["latest_pe"]}, 国债={d["latest_bond_yield"]}%, 收盘={d["latest_close"]}')
+            print(f'  股债性价比={d["latest_stock_bond_spread"]}  分位数={d["latest_percentile"]}')
+            print(f'  格雷厄姆指数={dg["latest_graham_index"]}  分位数={dg["latest_percentile"]}')
 
     print('\n完成!')
 

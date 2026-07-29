@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RSRS择时指标 - 量化择时</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+.chart-container { height: 520px; }
+.perf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.perf-table th,
+.perf-table td {
+  padding: 5px 8px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+}
+.perf-table th {
+  background: #f5f5f5;
+  color: #333;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.perf-table td { font-size: 0.82rem; }
+.perf-table .pos-full { color: #e53935; font-weight: 600; }
+.perf-table .pos-empty { color: #43a047; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <h1><a href="index.html">量化择时</a></h1>
+    <nav>
+      <a href="index.html">首页</a>
+      <a href="stock_bond.html">股债性价比</a>
+      <a href="graham.html">格雷厄姆指数</a>
+      <a href="rsrs.html" class="active">RSRS择时</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-title">
+    <h2>RSRS择时指标回测</h2>
+    <p>基于阻力支撑相对强度(RSRS) — OLS回归Z-score(&beta;)&times;R&sup2;构造信号, 阈值开平仓</p>
+  </div>
+
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3>上证50</h3>
+      <div id="chart-sz50" class="chart-container"></div>
+      <div id="perf-sz50" style="padding:8px 4px 0;"></div>
+    </div>
+    <div class="chart-card">
+      <h3>沪深300</h3>
+      <div id="chart-hs300" class="chart-container"></div>
+      <div id="perf-hs300" style="padding:8px 4px 0;"></div>
+    </div>
+    <div class="chart-card">
+      <h3>中证500</h3>
+      <div id="chart-zz500" class="chart-container"></div>
+      <div id="perf-zz500" style="padding:8px 4px 0;"></div>
+    </div>
+    <div class="chart-card">
+      <h3>中证1000</h3>
+      <div id="chart-zz1000" class="chart-container"></div>
+      <div id="perf-zz1000" style="padding:8px 4px 0;"></div>
+    </div>
+  </div>
+
+  <div id="data-source" class="data-source"></div>
+</main>
+
+<footer>
+  <p>RSRS指标参考光大证券(2017)研报; 成交额加权钝化参考光大证券(2019); 行情数据通过 akshare 获取</p>
+  <p>仅供参考，不构成投资建议。</p>
+</footer>
+
+<script src="data/rsrs_data.js"></script>
+<script>
+(function() {
+  var json = window.RSRS_DATA;
+  if (!json || Object.keys(json).length === 0) {
+    document.querySelector('.charts-grid').innerHTML =
+      '<div class="error">数据未加载。请先运行 <code>python fetch_rsrs.py</code> 生成数据文件。</div>';
+    return;
+  }
+
+  var INDEX_KEYS = ['上证50', '沪深300', '中证500', '中证1000'];
+  var CHART_IDS = ['chart-sz50', 'chart-hs300', 'chart-zz500', 'chart-zz1000'];
+  var PERF_IDS = ['perf-sz50', 'perf-hs300', 'perf-zz500', 'perf-zz1000'];
+
+  // 4种RSRS策略的显示配置
+  var STRATEGY_KEYS = ['RSRS_原始', 'RSRS_右偏修正', 'RSRS_钝化', 'RSRS_成交额加权钝化'];
+  var STRAT_COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00'];
+  var STRAT_NAMES = ['RSRS_原始', 'RSRS_右偏修正', 'RSRS_钝化', 'RSRS_成交额加权钝化'];
+
+  function renderChart(containerId, perfId, data) {
+    var dom = document.getElementById(containerId);
+    var chart = echarts.init(dom);
+
+    var legendData = ['买入持有'].concat(STRAT_NAMES);
+    var lastIdx = data.dates.length - 1;
+
+    // 构建series数组
+    var series = [];
+
+    // 1. 基准线: 买入持有
+    series.push({
+      name: '买入持有',
+      type: 'line',
+      data: data.benchmark_nav,
+      smooth: true,
+      lineStyle: { color: '#90a4ae', width: 1.5, type: 'dashed' },
+      itemStyle: { color: '#90a4ae' },
+      symbol: 'none'
+    });
+
+    // 2. 4条策略线
+    STRATEGY_KEYS.forEach(function(key, i) {
+      var strat = data.strategies[key];
+      if (!strat) return;
+
+      var isFull = strat.latest_position === '满仓';
+      series.push({
+        name: STRAT_NAMES[i],
+        type: 'line',
+        data: strat.nav,
+        smooth: true,
+        lineStyle: { color: STRAT_COLORS[i], width: 2 },
+        itemStyle: { color: STRAT_COLORS[i] },
+        symbol: 'none',
+        markPoint: {
+          symbol: 'pin',
+          symbolSize: 46,
+          data: [{
+            coord: [data.dates[lastIdx], strat.nav[lastIdx]],
+            value: strat.latest_position,
+            itemStyle: { color: isFull ? '#e53935' : '#43a047' },
+            label: {
+              formatter: function(p) { return p.value; },
+              color: '#fff',
+              fontSize: 11,
+              fontWeight: 'bold'
+            }
+          }]
+        }
+      });
+    });
+
+    var option = {
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' },
+        formatter: function(params) {
+          var s = params[0].axisValue + '<br/>';
+          params.forEach(function(p) {
+            s += p.marker + ' ' + p.seriesName + ': ' + p.value.toFixed(4) + '<br/>';
+          });
+          return s;
+        }
+      },
+      legend: {
+        data: legendData,
+        top: 5,
+        textStyle: { fontSize: 11 }
+      },
+      grid: { left: 60, right: 30, top: 50, bottom: 40 },
+      xAxis: {
+        type: 'category',
+        data: data.dates,
+        axisLabel: {
+          formatter: function(v) { return v.slice(0, 7); },
+          fontSize: 10,
+          interval: Math.floor(data.dates.length / 12)
+        }
+      },
+      yAxis: {
+        type: 'value',
+        name: '净值',
+        nameTextStyle: { fontSize: 11 },
+        axisLabel: { fontSize: 10 },
+        splitLine: { show: true },
+        scale: true
+      },
+      series: series
+    };
+
+    chart.setOption(option);
+    window.addEventListener('resize', function() { chart.resize(); });
+
+    // 性能表格
+    var html = '<table class="perf-table">' +
+      '<tr><th>策略</th><th>年化收益</th><th>基准收益</th><th>夏普</th><th>最大回撤</th><th>交易</th><th>当前</th></tr>';
+
+    STRATEGY_KEYS.forEach(function(key) {
+      var strat = data.strategies[key];
+      if (!strat) return;
+      var p = strat.performance;
+      var posClass = strat.latest_position === '满仓' ? 'pos-full' : 'pos-empty';
+      html += '<tr>' +
+        '<td style="text-align:left;">' + key + '</td>' +
+        '<td>' + p.annual_return + '</td>' +
+        '<td>' + p.benchmark_return + '</td>' +
+        '<td>' + p.sharpe + '</td>' +
+        '<td>' + p.max_drawdown + '</td>' +
+        '<td>' + p.trade_count + '</td>' +
+        '<td class="' + posClass + '">' + strat.latest_position + '</td>' +
+        '</tr>';
+    });
+    html += '</table>';
+    document.getElementById(perfId).innerHTML = html;
+  }
+
+  var firstKey = null;
+  INDEX_KEYS.forEach(function(key) {
+    if (json[key]) {
+      renderChart(CHART_IDS[INDEX_KEYS.indexOf(key)], PERF_IDS[INDEX_KEYS.indexOf(key)], json[key]);
+      if (!firstKey) firstKey = key;
+    }
+  });
+
+  if (firstKey && json[firstKey]) {
+    document.getElementById('data-source').textContent =
+      '4种RSRS策略回测对比 | 参数N=16~19, M=600~800, 各策略各指数独立阈值 | 数据来源: akshare';
+  }
+})();
+</script>
+</body>
+</html>
