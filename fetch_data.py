@@ -144,8 +144,8 @@ def main():
 
         # 股债性价比 = 1/PE_TTM * 100 - 国债收益率(%)
         merged['stock_bond_spread'] = (1.0 / merged['pe_ttm']) * 100 - merged['bond_yield']
-        # 格雷厄姆指数 = 国债收益率(%) / PE_TTM
-        merged['graham_index'] = merged['bond_yield'] / merged['pe_ttm']
+        # 格雷厄姆指数 = (1/PE_TTM * 100) / 国债收益率(%)
+        merged['graham_index'] = (1.0 / merged['pe_ttm']) * 100 / merged['bond_yield']
 
         merged = merged.set_index('date')
         merged['stock_bond_percentile'] = calc_rolling_percentile(merged['stock_bond_spread'], 5)
