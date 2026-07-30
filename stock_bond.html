@@ -101,7 +101,7 @@
         data: [spreadName, pctName, closeName],
         top: 5
       },
-      grid: { left: 60, right: 70, top: 50, bottom: 40 },
+      grid: { left: 60, right: 120, top: 50, bottom: 40 },
       xAxis: {
         type: 'category',
         data: data.dates,
@@ -124,10 +124,25 @@
           type: 'value',
           name: closeName,
           position: 'right',
+          offset: 0,
           nameTextStyle: { fontSize: 11 },
           axisLabel: { fontSize: 10 },
           splitLine: { show: false },
           scale: true
+        },
+        {
+          type: 'value',
+          name: '5年分位数',
+          position: 'right',
+          offset: 50,
+          min: 0,
+          max: 1,
+          nameTextStyle: { fontSize: 11 },
+          axisLabel: {
+            fontSize: 10,
+            formatter: function(v) { return (v * 100).toFixed(0) + '%'; }
+          },
+          splitLine: { show: false }
         }
       ],
       series: [
@@ -157,11 +172,15 @@
           name: pctName,
           type: 'line',
           data: data.percentile,
-          yAxisIndex: 0,
+          yAxisIndex: 2,
           smooth: true,
           lineStyle: { color: '#78909c', width: 1.5, type: 'dashed' },
           itemStyle: { color: '#78909c' },
           symbol: 'none',
+          areaStyle: {
+            color: '#78909c',
+            opacity: 0.08
+          },
           markLine: {
             silent: true,
             symbol: 'none',
