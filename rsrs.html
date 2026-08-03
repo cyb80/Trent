@@ -28,6 +28,14 @@
 .perf-table td { font-size: 0.82rem; }
 .perf-table .pos-full { color: #e53935; font-weight: 600; }
 .perf-table .pos-empty { color: #43a047; font-weight: 600; }
+.latest-info {
+  padding: 8px 4px 0;
+  font-size: 0.85rem;
+  color: #555;
+  line-height: 1.7;
+}
+.latest-info .latest-date { font-weight: 600; color: #333; }
+.latest-info .sig-item { margin-right: 12px; white-space: nowrap; display: inline-block; }
 </style>
 </head>
 <body>
@@ -53,21 +61,25 @@
     <div class="chart-card">
       <h3>上证50</h3>
       <div id="chart-sz50" class="chart-container"></div>
+      <div id="latest-sz50" class="latest-info"></div>
       <div id="perf-sz50" style="padding:8px 4px 0;"></div>
     </div>
     <div class="chart-card">
       <h3>沪深300</h3>
       <div id="chart-hs300" class="chart-container"></div>
+      <div id="latest-hs300" class="latest-info"></div>
       <div id="perf-hs300" style="padding:8px 4px 0;"></div>
     </div>
     <div class="chart-card">
       <h3>中证500</h3>
       <div id="chart-zz500" class="chart-container"></div>
+      <div id="latest-zz500" class="latest-info"></div>
       <div id="perf-zz500" style="padding:8px 4px 0;"></div>
     </div>
     <div class="chart-card">
       <h3>中证1000</h3>
       <div id="chart-zz1000" class="chart-container"></div>
+      <div id="latest-zz1000" class="latest-info"></div>
       <div id="perf-zz1000" style="padding:8px 4px 0;"></div>
     </div>
   </div>
@@ -92,6 +104,7 @@
 
   var INDEX_KEYS = ['上证50', '沪深300', '中证500', '中证1000'];
   var CHART_IDS = ['chart-sz50', 'chart-hs300', 'chart-zz500', 'chart-zz1000'];
+  var LATEST_IDS = ['latest-sz50', 'latest-hs300', 'latest-zz500', 'latest-zz1000'];
   var PERF_IDS = ['perf-sz50', 'perf-hs300', 'perf-zz500', 'perf-zz1000'];
 
   // 4种RSRS策略的显示配置
@@ -99,7 +112,7 @@
   var STRAT_COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00'];
   var STRAT_NAMES = ['RSRS_原始', 'RSRS_右偏修正', 'RSRS_钝化', 'RSRS_成交额加权钝化'];
 
-  function renderChart(containerId, perfId, data) {
+  function renderChart(containerId, latestId, perfId, data) {
     var dom = document.getElementById(containerId);
     var chart = echarts.init(dom);
 
@@ -109,10 +122,12 @@
     // 构建series数组
     var series = [];
 
-    // 1. 基准线: 买入持有
+    // 1. 基准线: 买入持有 (上方面板)
     series.push({
       name: '买入持有',
       type: 'line',
+      xAxisIndex: 0,
+      yAxisIndex: 0,
       data: data.benchmark_nav,
       smooth: true,
       lineStyle: { color: '#90a4ae', width: 1.5, type: 'dashed' },
@@ -120,7 +135,7 @@
       symbol: 'none'
     });
 
-    // 2. 4条策略线
+    // 2. 4条策略净值线 (上方面板) + 4条指标线 (下方面板)
     STRATEGY_KEYS.forEach(function(key, i) {
       var strat = data.strategies[key];
       if (!strat) return;
@@ -129,6 +144,8 @@
       series.push({
         name: STRAT_NAMES[i],
         type: 'line',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
         data: strat.nav,
         smooth: true,
         lineStyle: { color: STRAT_COLORS[i], width: 2 },
@@ -150,6 +167,29 @@
           }]
         }
       });
+
+      // 指标线 + 阈值线 (下方面板)
+      series.push({
+        name: STRAT_NAMES[i],
+        type: 'line',
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+        data: strat.signal,
+        smooth: true,
+        lineStyle: { color: STRAT_COLORS[i], width: 1.2, opacity: 0.85 },
+        itemStyle: { color: STRAT_COLORS[i] },
+        symbol: 'none',
+        markLine: {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { color: STRAT_COLORS[i], type: 'dashed', width: 1 },
+          label: { show: false },
+          data: [
+            { yAxis: strat.threshold },
+            { yAxis: -strat.threshold }
+          ]
+        }
+      });
     });
 
     var option = {
@@ -159,7 +199,13 @@
         formatter: function(params) {
           var s = params[0].axisValue + '<br/>';
           params.forEach(function(p) {
-            s += p.marker + ' ' + p.seriesName + ': ' + p.value.toFixed(4) + '<br/>';
+            if (p.seriesName === '买入持有') {
+              s += p.marker + ' ' + p.seriesName + ': ' + p.value.toFixed(4) + '<br/>';
+            } else if (p.dataIndex >= 0 && p.value === null) {
+              return;
+            } else {
+              s += p.marker + ' ' + p.seriesName + ': ' + p.value.toFixed(4) + '<br/>';
+            }
           });
           return s;
         }
@@ -169,39 +215,79 @@
         top: 5,
         textStyle: { fontSize: 11 }
       },
-      grid: { left: 60, right: 30, top: 50, bottom: 40 },
-      xAxis: {
-        type: 'category',
-        data: data.dates,
-        axisLabel: {
-          formatter: function(v) { return v.slice(0, 7); },
-          fontSize: 10,
-          interval: Math.floor(data.dates.length / 12)
+      grid: [
+        { left: 60, right: 30, top: 50, height: '55%' },
+        { left: 60, right: 30, top: '72%', height: '22%' }
+      ],
+      xAxis: [
+        {
+          type: 'category',
+          gridIndex: 0,
+          data: data.dates,
+          axisLabel: {
+            formatter: function(v) { return v.slice(0, 7); },
+            fontSize: 10,
+            interval: Math.floor(data.dates.length / 12)
+          }
+        },
+        {
+          type: 'category',
+          gridIndex: 1,
+          data: data.dates,
+          axisLabel: { show: false },
+          axisTick: { show: false }
         }
-      },
-      yAxis: {
-        type: 'value',
-        name: '净值',
-        nameTextStyle: { fontSize: 11 },
-        axisLabel: { fontSize: 10 },
-        splitLine: { show: true },
-        scale: true
-      },
+      ],
+      yAxis: [
+        {
+          type: 'value',
+          gridIndex: 0,
+          name: '净值',
+          nameTextStyle: { fontSize: 11 },
+          axisLabel: { fontSize: 10 },
+          splitLine: { show: true },
+          scale: true
+        },
+        {
+          type: 'value',
+          gridIndex: 1,
+          name: 'RSRS指标',
+          nameTextStyle: { fontSize: 11 },
+          axisLabel: { fontSize: 10 },
+          splitLine: { show: true }
+        }
+      ],
       series: series
     };
 
     chart.setOption(option);
     window.addEventListener('resize', function() { chart.resize(); });
 
+    // 最新日期与各策略指标值文字标识
+    var latestDate = data.dates[data.dates.length - 1];
+    var infoHtml = '<div class="latest-date">最新日期: ' + latestDate + '</div><div style="margin-top:2px;">';
+    STRATEGY_KEYS.forEach(function(key, i) {
+      var strat = data.strategies[key];
+      if (!strat) return;
+      var lastSig = strat.signal && strat.signal.length ? strat.signal[strat.signal.length - 1] : null;
+      var sigStr = lastSig === null || lastSig === undefined ? '-' : lastSig.toFixed(4);
+      infoHtml += '<span class="sig-item"><span style="color:' + STRAT_COLORS[i] + ';font-weight:600;">' +
+        key + '</span>: ' + sigStr + ' (阈值±' + strat.threshold + ')</span>';
+    });
+    infoHtml += '</div>';
+    document.getElementById(latestId).innerHTML = infoHtml;
+
     // 性能表格
     var html = '<table class="perf-table">' +
-      '<tr><th>策略</th><th>年化收益</th><th>基准收益</th><th>夏普</th><th>最大回撤</th><th>交易</th><th>当前</th></tr>';
+      '<tr><th>策略</th><th>年化收益</th><th>基准收益</th><th>夏普</th><th>最大回撤</th><th>交易</th><th>最新指标</th><th>阈值</th><th>当前</th></tr>';
 
     STRATEGY_KEYS.forEach(function(key) {
       var strat = data.strategies[key];
       if (!strat) return;
       var p = strat.performance;
       var posClass = strat.latest_position === '满仓' ? 'pos-full' : 'pos-empty';
+      var lastSig = strat.signal && strat.signal.length ? strat.signal[strat.signal.length - 1] : null;
+      var sigStr = lastSig === null || lastSig === undefined ? '-' : lastSig.toFixed(4);
       html += '<tr>' +
         '<td style="text-align:left;">' + key + '</td>' +
         '<td>' + p.annual_return + '</td>' +
@@ -209,6 +295,8 @@
         '<td>' + p.sharpe + '</td>' +
         '<td>' + p.max_drawdown + '</td>' +
         '<td>' + p.trade_count + '</td>' +
+        '<td>' + sigStr + '</td>' +
+        '<td>±' + strat.threshold + '</td>' +
         '<td class="' + posClass + '">' + strat.latest_position + '</td>' +
         '</tr>';
     });
@@ -219,7 +307,8 @@
   var firstKey = null;
   INDEX_KEYS.forEach(function(key) {
     if (json[key]) {
-      renderChart(CHART_IDS[INDEX_KEYS.indexOf(key)], PERF_IDS[INDEX_KEYS.indexOf(key)], json[key]);
+      var idx = INDEX_KEYS.indexOf(key);
+      renderChart(CHART_IDS[idx], LATEST_IDS[idx], PERF_IDS[idx], json[key]);
       if (!firstKey) firstKey = key;
     }
   });

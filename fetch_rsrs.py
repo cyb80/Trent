@@ -181,7 +181,8 @@ def run_backtest(close, signals, threshold, fee_rate=0.001):
 # ----- akshare 数据获取函数（供增量更新使用） -----
 
 def fetch_akshare_daily(code, start_date):
-    """从 akshare 获取指数日线数据"""
+    """从 akshare 获取指数日线数据（东方财富为主源，新浪为备用源）"""
+    # 主源: 东方财富
     try:
         df = ak.stock_zh_index_daily_em(symbol=code)
         df['date'] = pd.to_datetime(df['date'])
@@ -192,7 +193,26 @@ def fetch_akshare_daily(code, start_date):
         df = df.sort_index()
         return df
     except Exception as e:
-        print(f'  OHLCV获取失败: {e}')
+        print(f'  OHLCV主源(东财)失败: {e}')
+
+    # 备用源: 新浪
+    try:
+        code_sina = code.lower()
+        if code_sina.startswith('sh') or code_sina.startswith('sz'):
+            code_sina = code_sina[:2] + code_sina[2:]
+        df = ak.stock_zh_index_daily(symbol=code)
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.set_index('date')
+        df = df[['open', 'close', 'high', 'low', 'volume']]
+        df.columns = ['OPEN', 'CLOSE', 'HIGH', 'LOW', 'VOLUME']
+        # 新浪 volume 单位为"股"，东财为"手"(1手=100股)，除以100转为"手"以保持与东财数据一致
+        df['VOLUME'] = df['VOLUME'] / 100
+        df = df[df.index >= start_date]
+        df = df.sort_index()
+        print(f'  OHLCV备用源(新浪)成功: {len(df)}条')
+        return df
+    except Exception as e:
+        print(f'  OHLCV备用源(新浪)失败: {e}')
         return None
 
 
@@ -408,12 +428,15 @@ def main():
 
         # 对每种RSRS策略分别回测
         strategies = {}
+        signals_map = {}
         for name, th in cfg['ths'].items():
             if name not in rsrs_df.columns:
                 continue
             signal = rsrs_df[name].dropna()
+            signals_map[name] = signal
             result = run_backtest(df['CLOSE'].loc[signal.index], signal, threshold=th)
             if result:
+                result['threshold'] = th
                 strategies[name] = result
                 p = result['performance']
                 print(f'    {name:>14} (th={th}): 年化={p["annual_return"]}, 夏普={p["sharpe"]}, 回撤={p["max_drawdown"]}, {result["latest_position"]}')
@@ -436,11 +459,16 @@ def main():
         common_dates_str = [d.strftime('%Y-%m-%d') for d in common_dates]
         date_set = set(common_dates_str)
 
-        # 按对齐后的日期重采样每个策略的净值
+        # 按对齐后的日期重采样每个策略的净值与指标信号
         for name in strategies:
             sd = strategies[name]
             date_nav = dict(zip(sd['dates'], sd['nav']))
             sd['nav'] = [date_nav.get(d, None) for d in common_dates_str]
+            sig = signals_map[name].reindex(common_dates)
+            sd['signal'] = [
+                round(float(v), 6) if pd.notna(v) else None
+                for v in sig.values
+            ]
 
         # 基准净值
         close_aligned = df['CLOSE'].loc[common_dates]
