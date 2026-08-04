@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MACD择时 - 量化择时</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+.chart-container { height: 560px; }
+.perf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.perf-table th,
+.perf-table td {
+  padding: 5px 8px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+}
+.perf-table th {
+  background: #f5f5f5;
+  color: #333;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.perf-table td { font-size: 0.82rem; }
+.perf-table .pos-long { color: #e53935; font-weight: 600; }
+.perf-table .pos-short { color: #1e88e5; font-weight: 600; }
+.perf-table .pos-flat { color: #90a4ae; font-weight: 600; }
+.latest-info {
+  padding: 8px 4px 0;
+  font-size: 0.85rem;
+  color: #555;
+  line-height: 1.7;
+}
+.latest-info .latest-date { font-weight: 600; color: #333; }
+.latest-info .sig-item { margin-right: 12px; white-space: nowrap; display: inline-block; }
+.strategy-desc {
+  background: #f8f9fb;
+  border: 1px solid #e8eaf6;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px 0 4px;
+  font-size: 0.85rem;
+  color: #555;
+  line-height: 1.8;
+}
+.strategy-desc b { color: #1a237e; }
+.strategy-desc .m-color { color: #e53935; font-weight: 600; }
+.strategy-desc .me-color { color: #1e88e5; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <h1><a href="index.html">量化择时</a></h1>
+    <nav>
+      <a href="index.html">首页</a>
+      <a href="stock_bond.html">股债性价比</a>
+      <a href="graham.html">格雷厄姆指数</a>
+      <a href="rsrs.html">RSRS择时</a>
+      <a href="macd.html" class="active">MACD择时</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-title">
+    <h2>MACD择时指标回测</h2>
+    <p>基于指数平滑异同移动平均线(MACD) — 参考金圆统一证券(2025)《指数趋势投资之指标策略MACD》</p>
+  </div>
+
+  <div class="strategy-desc">
+    <b>策略M</b>（<span class="m-color">单一指标策略</span>）：调小MACD默认参数(12,26,9)提升信号灵敏度，
+    信号采用<b>DIF的0轴判定</b>（研报2.1节：DIF在0轴上方为多头市场、下方为空头市场），
+    DIF&gt;0 次日开盘做多，DIF&lt;0 次日开盘做空，无止损设置。<br>
+    <b>策略ME</b>（<span class="me-color">指标组合策略</span>）：在策略M基础上增加<b>双重移动平均线过滤器</b>，
+    DIF&gt;0 且 EMA(5)&gt;EMA(20) 做多，DIF&lt;0 且 EMA(5)&lt;EMA(20) 做空，其他状态空仓，无止损设置。<br>
+    本回测为研报原版<b>多空双向</b>口径（做多/做空/空仓），按股指期货手续费（单边万2）计费。参数DIF(8,17)为调小参考值。
+    注：采用DIF而非MACD柱线作为信号，因MACD柱线在0轴附近频繁穿越产生大量假信号，DIF信号更稳定、回测效果显著更优。
+  </div>
+
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3>上证50</h3>
+      <div id="chart-sz50" class="chart-container"></div>
+      <div id="latest-sz50" class="latest-info"></div>
+      <div id="perf-sz50" style="padding:8px 4px 0;"></div>
+    </div>
+    <div class="chart-card">
+      <h3>沪深300</h3>
+      <div id="chart-hs300" class="chart-container"></div>
+      <div id="latest-hs300" class="latest-info"></div>
+      <div id="perf-hs300" style="padding:8px 4px 0;"></div>
+    </div>
+    <div class="chart-card">
+      <h3>中证500</h3>
+      <div id="chart-zz500" class="chart-container"></div>
+      <div id="latest-zz500" class="latest-info"></div>
+      <div id="perf-zz500" style="padding:8px 4px 0;"></div>
+    </div>
+    <div class="chart-card">
+      <h3>中证1000</h3>
+      <div id="chart-zz1000" class="chart-container"></div>
+      <div id="latest-zz1000" class="latest-info"></div>
+      <div id="perf-zz1000" style="padding:8px 4px 0;"></div>
+    </div>
+  </div>
+
+  <div id="data-source" class="data-source"></div>
+</main>
+
+<footer>
+  <p>MACD策略参考金圆统一证券(2025)研报《策略专题: 指数趋势投资之指标策略MACD》; 行情数据通过 akshare 获取</p>
+  <p>仅供参考，不构成投资建议。</p>
+</footer>
+
+<script src="data/macd_data.js"></script>
+<script>
+(function() {
+  var json = window.MACD_DATA;
+  if (!json || Object.keys(json).length === 0) {
+    document.querySelector('.charts-grid').innerHTML =
+      '<div class="error">数据未加载。请先运行 <code>python fetch_macd.py</code> 生成数据文件。</div>';
+    return;
+  }
+
+  var INDEX_KEYS = ['上证50', '沪深300', '中证500', '中证1000'];
+  var CHART_IDS = ['chart-sz50', 'chart-hs300', 'chart-zz500', 'chart-zz1000'];
+  var LATEST_IDS = ['latest-sz50', 'latest-hs300', 'latest-zz500', 'latest-zz1000'];
+  var PERF_IDS = ['perf-sz50', 'perf-hs300', 'perf-zz500', 'perf-zz1000'];
+
+  // 2种MACD策略的显示配置
+  var STRATEGY_KEYS = ['策略M', '策略ME'];
+  var STRAT_COLORS = ['#e53935', '#1e88e5'];
+
+  function renderChart(containerId, latestId, perfId, data) {
+    var dom = document.getElementById(containerId);
+    var chart = echarts.init(dom);
+
+    var lastIdx = data.dates.length - 1;
+    var series = [];
+
+    // 1. 基准线: 买入持有 (上方面板)
+    series.push({
+      name: '买入持有',
+      type: 'line',
+      xAxisIndex: 0,
+      yAxisIndex: 0,
+      data: data.benchmark_nav,
+      smooth: true,
+      lineStyle: { color: '#90a4ae', width: 1.5, type: 'dashed' },
+      itemStyle: { color: '#90a4ae' },
+      symbol: 'none'
+    });
+
+    // 2. 策略净值线 (上方面板)
+    STRATEGY_KEYS.forEach(function(key, i) {
+      var strat = data.strategies[key];
+      if (!strat) return;
+      var posColor = { '多头': '#e53935', '空头': '#1e88e5', '空仓': '#90a4ae' }[strat.latest_position] || '#90a4ae';
+      series.push({
+        name: key,
+        type: 'line',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        data: strat.nav,
+        smooth: true,
+        lineStyle: { color: STRAT_COLORS[i], width: 2 },
+        itemStyle: { color: STRAT_COLORS[i] },
+        symbol: 'none',
+        markPoint: {
+          symbol: 'pin',
+          symbolSize: 46,
+          data: [{
+            coord: [data.dates[lastIdx], strat.nav[lastIdx]],
+            value: strat.latest_position,
+            itemStyle: { color: posColor },
+            label: {
+              formatter: function(p) { return p.value; },
+              color: '#fff',
+              fontSize: 11,
+              fontWeight: 'bold'
+            }
+          }]
+        }
+      });
+    });
+
+    // 3. 下方面板: DIF指标线 (0轴为多空分界)
+    series.push({
+      name: 'DIF',
+      type: 'line',
+      xAxisIndex: 1,
+      yAxisIndex: 1,
+      data: data.dif,
+      smooth: true,
+      lineStyle: { color: '#7b1fa2', width: 1.3, opacity: 0.9 },
+      itemStyle: { color: '#7b1fa2' },
+      symbol: 'none',
+      markLine: {
+        silent: true,
+        symbol: 'none',
+        lineStyle: { color: '#9e9e9e', width: 1 },
+        label: { formatter: '0轴', fontSize: 10 },
+        data: [{ yAxis: 0 }]
+      }
+    });
+
+    // 4. 第三面板: EMA过滤器线 (策略ME开仓条件)
+    series.push({
+      name: 'EMA(5)',
+      type: 'line',
+      xAxisIndex: 2,
+      yAxisIndex: 2,
+      data: data.ema_s,
+      smooth: true,
+      lineStyle: { color: '#43a047', width: 1.3 },
+      itemStyle: { color: '#43a047' },
+      symbol: 'none'
+    });
+    series.push({
+      name: 'EMA(20)',
+      type: 'line',
+      xAxisIndex: 2,
+      yAxisIndex: 2,
+      data: data.ema_l,
+      smooth: true,
+      lineStyle: { color: '#fb8c00', width: 1.3 },
+      itemStyle: { color: '#fb8c00' },
+      symbol: 'none'
+    });
+
+    var legendData = ['买入持有'].concat(STRATEGY_KEYS).concat(['DIF', 'EMA(5)', 'EMA(20)']);
+    var option = {
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' },
+        formatter: function(params) {
+          var s = params[0].axisValue + '<br/>';
+          params.forEach(function(p) {
+            if (p.value === null || p.value === undefined) return;
+            var v = p.value;
+            if (p.seriesName !== '买入持有' && p.seriesName !== 'DIF') {
+              v = v;
+            }
+            s += p.marker + ' ' + p.seriesName + ': ' + v.toFixed(4) + '<br/>';
+          });
+          return s;
+        }
+      },
+      legend: {
+        data: legendData,
+        top: 5,
+        textStyle: { fontSize: 11 }
+      },
+      grid: [
+        { left: 60, right: 30, top: 50, height: '52%' },
+        { left: 60, right: 30, top: '66%', height: '15%' },
+        { left: 60, right: 30, top: '84%', height: '12%' }
+      ],
+      xAxis: [
+        {
+          type: 'category',
+          gridIndex: 0,
+          data: data.dates,
+          axisLabel: {
+            formatter: function(v) { return v.slice(0, 7); },
+            fontSize: 10,
+            interval: Math.floor(data.dates.length / 12)
+          }
+        },
+        {
+          type: 'category',
+          gridIndex: 1,
+          data: data.dates,
+          axisLabel: { show: false },
+          axisTick: { show: false }
+        },
+        {
+          type: 'category',
+          gridIndex: 2,
+          data: data.dates,
+          axisLabel: { show: false },
+          axisTick: { show: false }
+        }
+      ],
+      yAxis: [
+        {
+          type: 'value',
+          gridIndex: 0,
+          name: '净值',
+          nameTextStyle: { fontSize: 11 },
+          axisLabel: { fontSize: 10 },
+          splitLine: { show: true },
+          scale: true
+        },
+        {
+          type: 'value',
+          gridIndex: 1,
+          name: 'DIF',
+          nameTextStyle: { fontSize: 11 },
+          axisLabel: { fontSize: 10 },
+          splitLine: { show: false }
+        },
+        {
+          type: 'value',
+          gridIndex: 2,
+          name: '价格',
+          nameTextStyle: { fontSize: 11 },
+          axisLabel: { fontSize: 10 },
+          splitLine: { show: false }
+        }
+      ],
+      series: series
+    };
+
+    chart.setOption(option);
+    window.addEventListener('resize', function() { chart.resize(); });
+
+    // 最新日期与各策略指标值文字标识
+    var latestDate = data.dates[data.dates.length - 1];
+    var lastDif = data.dif && data.dif.length ? data.dif[data.dif.length - 1] : null;
+    var difStr = lastDif === null || lastDif === undefined ? '-' : lastDif.toFixed(4);
+    var infoHtml = '<div class="latest-date">最新日期: ' + latestDate + '</div><div style="margin-top:2px;">';
+    STRATEGY_KEYS.forEach(function(key, i) {
+      var strat = data.strategies[key];
+      if (!strat) return;
+      var lastSig = strat.signal && strat.signal.length ? strat.signal[strat.signal.length - 1] : null;
+      var sigStr = lastSig === null || lastSig === undefined ? '-' : lastSig.toFixed(4);
+      infoHtml += '<span class="sig-item"><span style="color:' + STRAT_COLORS[i] + ';font-weight:600;">' +
+        key + '</span>: DIF=' + sigStr + ' → ' + strat.latest_position + '</span>';
+    });
+    infoHtml += '<span class="sig-item"><span style="color:#7b1fa2;font-weight:600;">DIF指标</span>: ' + difStr + '</span>';
+    infoHtml += '</div>';
+    document.getElementById(latestId).innerHTML = infoHtml;
+
+    // 性能表格
+    var html = '<table class="perf-table">' +
+      '<tr><th>策略</th><th>年化收益</th><th>基准收益</th><th>夏普</th><th>最大回撤</th><th>交易</th><th>最新DIF</th><th>当前</th></tr>';
+
+    STRATEGY_KEYS.forEach(function(key) {
+      var strat = data.strategies[key];
+      if (!strat) return;
+      var p = strat.performance;
+      var posClass = { '多头': 'pos-long', '空头': 'pos-short', '空仓': 'pos-flat' }[strat.latest_position] || 'pos-flat';
+      var lastSig = strat.signal && strat.signal.length ? strat.signal[strat.signal.length - 1] : null;
+      var sigStr = lastSig === null || lastSig === undefined ? '-' : lastSig.toFixed(4);
+      html += '<tr>' +
+        '<td style="text-align:left;">' + key + '</td>' +
+        '<td>' + p.annual_return + '</td>' +
+        '<td>' + p.benchmark_return + '</td>' +
+        '<td>' + p.sharpe + '</td>' +
+        '<td>' + p.max_drawdown + '</td>' +
+        '<td>' + p.trade_count + '</td>' +
+        '<td>' + sigStr + '</td>' +
+        '<td class="' + posClass + '">' + strat.latest_position + '</td>' +
+        '</tr>';
+    });
+    html += '</table>';
+    document.getElementById(perfId).innerHTML = html;
+  }
+
+  var firstKey = null;
+  INDEX_KEYS.forEach(function(key) {
+    if (json[key]) {
+      var idx = INDEX_KEYS.indexOf(key);
+      renderChart(CHART_IDS[idx], LATEST_IDS[idx], PERF_IDS[idx], json[key]);
+      if (!firstKey) firstKey = key;
+    }
+  });
+
+  if (firstKey && json[firstKey]) {
+    document.getElementById('data-source').textContent =
+      '策略M与策略ME回测对比 (研报原版多空双向口径) | DIF(8,17)信号, 过滤器EMA(5)/EMA(20), 期货手续费万2 | 数据来源: akshare';
+  }
+})();
+</script>
+</body>
+</html>
