@@ -476,10 +476,22 @@ def main():
         bm_nav = (1 + p_ret).cumprod()
         bm_nav.iloc[0] = 1.0
 
+        # 导出近M+N+50天的OHLCV序列, 供前端盘中实时高低点重算RSRS预测值
+        pre_len = max(cfg['M'], cfg['N']) + cfg['N'] + 50
+        ohlc_df = df[['CLOSE', 'HIGH', 'LOW', 'VOLUME']].iloc[-pre_len:]
+
         idx_data = {
             'dates': common_dates_str,
             'benchmark_nav': [round(v, 6) for v in bm_nav.values],
             'strategies': strategies,
+            'params': {'N': cfg['N'], 'M': cfg['M'], 'ths': cfg['ths']},
+            'ohlc': {
+                'dates': [d.strftime('%Y-%m-%d') for d in ohlc_df.index],
+                'close': [round(float(v), 4) for v in ohlc_df['CLOSE'].values],
+                'high': [round(float(v), 4) for v in ohlc_df['HIGH'].values],
+                'low': [round(float(v), 4) for v in ohlc_df['LOW'].values],
+                'volume': [round(float(v), 2) for v in ohlc_df['VOLUME'].values],
+            },
         }
         results[display_name] = idx_data
 

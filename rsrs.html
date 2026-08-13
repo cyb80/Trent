@@ -36,6 +36,11 @@
 }
 .latest-info .latest-date { font-weight: 600; color: #333; }
 .latest-info .sig-item { margin-right: 12px; white-space: nowrap; display: inline-block; }
+.pred-cell { color: #999; }
+.pred-cell.pos-full { color: #e53935; font-weight: 600; }
+.pred-cell.pos-empty { color: #43a047; font-weight: 600; }
+.pred-cell.pos-flat { color: #999; }
+.pred-status-row td { padding: 3px 8px; text-align: left; font-size: 0.78rem; color: #888; background: #fafafa; }
 </style>
 </head>
 <body>
@@ -112,9 +117,10 @@
   var STRAT_COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00'];
   var STRAT_NAMES = ['RSRS_原始', 'RSRS_右偏修正', 'RSRS_钝化', 'RSRS_成交额加权钝化'];
 
-  function renderChart(containerId, latestId, perfId, data) {
+  function renderChart(containerId, latestId, perfId, data, name) {
     var dom = document.getElementById(containerId);
     var chart = echarts.init(dom);
+    var suffix = containerId.replace('chart-', '');
 
     var legendData = ['买入持有'].concat(STRAT_NAMES);
     var lastIdx = data.dates.length - 1;
@@ -279,7 +285,8 @@
 
     // 性能表格
     var html = '<table class="perf-table">' +
-      '<tr><th>策略</th><th>年化收益</th><th>基准收益</th><th>夏普</th><th>最大回撤</th><th>交易</th><th>最新指标</th><th>阈值</th><th>当前</th></tr>';
+      '<tr><th>策略</th><th>年化收益</th><th>基准收益</th><th>夏普</th><th>最大回撤</th><th>交易</th><th>最新指标</th><th>预测值</th><th>阈值</th><th>当前</th></tr>' +
+      '<tr class="pred-status-row"><td colspan="10" id="pred-status-' + suffix + '" class="pred-status">预测值计算中...</td></tr>';
 
     STRATEGY_KEYS.forEach(function(key) {
       var strat = data.strategies[key];
@@ -296,6 +303,7 @@
         '<td>' + p.max_drawdown + '</td>' +
         '<td>' + p.trade_count + '</td>' +
         '<td>' + sigStr + '</td>' +
+        '<td class="pred-cell" data-idx="' + name + '" data-key="' + key + '">-</td>' +
         '<td>±' + strat.threshold + '</td>' +
         '<td class="' + posClass + '">' + strat.latest_position + '</td>' +
         '</tr>';
@@ -308,16 +316,17 @@
   INDEX_KEYS.forEach(function(key) {
     if (json[key]) {
       var idx = INDEX_KEYS.indexOf(key);
-      renderChart(CHART_IDS[idx], LATEST_IDS[idx], PERF_IDS[idx], json[key]);
+      renderChart(CHART_IDS[idx], LATEST_IDS[idx], PERF_IDS[idx], json[key], key);
       if (!firstKey) firstKey = key;
     }
   });
 
   if (firstKey && json[firstKey]) {
     document.getElementById('data-source').textContent =
-      '4种RSRS策略回测对比 | 参数N=16~19, M=600~800, 各策略各指数独立阈值 | 数据来源: akshare';
+      '4种RSRS策略回测对比 | 参数N=16~19, M=600~800, 各策略各指数独立阈值 | 数据来源: akshare | 预测值: 盘中实时估算';
   }
 })();
 </script>
+<script src="js/rsrs_realtime.js"></script>
 </body>
 </html>
