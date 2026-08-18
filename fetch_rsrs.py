@@ -10,7 +10,7 @@ import json
 import os
 import sys
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import akshare as ak
 import numpy as np
@@ -341,19 +341,45 @@ def update_xlsx_from_akshare():
         df.index = pd.to_datetime(df.index)
         last_date = df.index.max().strftime('%Y-%m-%d')
         start_date = (pd.to_datetime(last_date) - timedelta(days=5)).strftime('%Y-%m-%d')
+        now_bj = datetime.now(timezone.utc) + timedelta(hours=8)
+        today_bj = now_bj.strftime('%Y-%m-%d')
+        in_session = now_bj.hour < 15  # 北京时间15:00前视为盘中(当日数据不完整)
 
         new_data = fetch_akshare_daily(code, start_date)
         if new_data is None or len(new_data) == 0:
             print(f'  [{display_name}] OHLCV无新数据')
         else:
-            existing_dates = set(df.index.strftime('%Y-%m-%d'))
-            new_rows = new_data[~new_data.index.strftime('%Y-%m-%d').isin(existing_dates)]
-            if len(new_rows) > 0:
-                df = pd.concat([df, new_rows])
-                updated = True
-                print(f'  [{display_name}] OHLCV新增 {len(new_rows)} 条')
-            else:
-                print(f'  [{display_name}] OHLCV已是最新')
+            if in_session:
+                # 盘中: 丢弃抓取到的当日(不完整)数据, 并移除xlsx中残留的当日盘中行,
+                # 避免盘中快照写入数据文件导致页面"最新指标"显示不完整数据
+                new_data = new_data[new_data.index.strftime('%Y-%m-%d') < today_bj]
+                if today_bj in set(df.index.strftime('%Y-%m-%d')):
+                    df = df[df.index.strftime('%Y-%m-%d') != today_bj]
+                    updated = True
+                    print(f'  [{display_name}] 移除盘中残留的当日数据({today_bj})')
+                if len(new_data) == 0:
+                    print(f'  [{display_name}] 盘中跳过当日数据')
+            if len(new_data) > 0:
+                existing_dates = set(df.index.strftime('%Y-%m-%d'))
+                new_rows = new_data[~new_data.index.strftime('%Y-%m-%d').isin(existing_dates)]
+                overlap = new_data[new_data.index.strftime('%Y-%m-%d').isin(existing_dates)]
+                changed = False
+                if len(new_rows) > 0:
+                    df = pd.concat([df, new_rows])
+                    changed = True
+                    print(f'  [{display_name}] OHLCV新增 {len(new_rows)} 条')
+                if len(overlap) > 0:
+                    # 覆盖已有日期行(如盘中快照→收盘数据), 保留PE_TTM/PB_MRQ
+                    ohlc_cols = ['OPEN', 'CLOSE', 'HIGH', 'LOW', 'VOLUME']
+                    for dt in overlap.index:
+                        if dt in df.index:
+                            df.loc[dt, ohlc_cols] = overlap.loc[dt, ohlc_cols]
+                    changed = True
+                    print(f'  [{display_name}] OHLCV覆盖 {len(overlap)} 条(刷新当日/近期数据)')
+                if changed:
+                    updated = True
+                else:
+                    print(f'  [{display_name}] OHLCV已是最新')
 
         df = df[~df.index.duplicated(keep='last')]
         df = df.sort_index()
