@@ -9,6 +9,7 @@
 import json
 import os
 import sys
+import threading
 from datetime import datetime, timedelta
 
 import akshare as ak
@@ -180,10 +181,36 @@ def run_backtest(close, signals, threshold, fee_rate=0.001):
 
 # ----- akshare 数据获取函数（供增量更新使用） -----
 
+def _run_with_timeout(fn, timeout=25):
+    """在线程中运行fn，超时返回(None, 错误信息)，避免某个数据源挂起拖垮整个流程"""
+    result = {}
+
+    def runner():
+        try:
+            result['val'] = fn()
+        except Exception as e:
+            result['err'] = f'{type(e).__name__}: {e}'
+
+    t = threading.Thread(target=runner, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        return None, f'请求超时(>{timeout}s)'
+    if 'err' in result:
+        return None, result['err']
+    return result['val'], None
+
+
 def fetch_akshare_daily(code, start_date):
-    """从 akshare 获取指数日线数据（东方财富为主源，新浪为备用源）"""
-    # 主源: 东方财富
-    try:
+    """从多个数据源获取指数日线数据（东方财富→新浪→腾讯），返回标准DataFrame
+
+    说明: 新浪/东财对部分服务器IP（如GitHub Actions）会拒绝连接, 因此保留多源兜底。
+    腾讯源的amount列与"新浪volume÷100"完全一致（单位: 手），可直接用作VOLUME。
+    """
+    errors = []
+
+    # 源1: 东方财富 (akshare)
+    def s_em():
         df = ak.stock_zh_index_daily_em(symbol=code)
         df['date'] = pd.to_datetime(df['date'])
         df = df.set_index('date')
@@ -192,14 +219,15 @@ def fetch_akshare_daily(code, start_date):
         df = df[df.index >= start_date]
         df = df.sort_index()
         return df
-    except Exception as e:
-        print(f'  OHLCV主源(东财)失败: {e}')
 
-    # 备用源: 新浪
-    try:
-        code_sina = code.lower()
-        if code_sina.startswith('sh') or code_sina.startswith('sz'):
-            code_sina = code_sina[:2] + code_sina[2:]
+    df, err = _run_with_timeout(s_em)
+    if df is not None and len(df) > 0:
+        return df
+    errors.append(f'东财EM: {err or "空数据"}')
+    print(f'  OHLCV源1(东财EM)失败: {err}')
+
+    # 源2: 新浪
+    def s_sina():
         df = ak.stock_zh_index_daily(symbol=code)
         df['date'] = pd.to_datetime(df['date'])
         df = df.set_index('date')
@@ -209,11 +237,35 @@ def fetch_akshare_daily(code, start_date):
         df['VOLUME'] = df['VOLUME'] / 100
         df = df[df.index >= start_date]
         df = df.sort_index()
-        print(f'  OHLCV备用源(新浪)成功: {len(df)}条')
         return df
-    except Exception as e:
-        print(f'  OHLCV备用源(新浪)失败: {e}')
-        return None
+
+    df, err = _run_with_timeout(s_sina)
+    if df is not None and len(df) > 0:
+        print(f'  OHLCV源2(新浪)成功: {len(df)}条')
+        return df
+    errors.append(f'新浪: {err or "空数据"}')
+    print(f'  OHLCV源2(新浪)失败: {err}')
+
+    # 源3: 腾讯 (amount列即手数, 与新浪÷100一致)
+    def s_tx():
+        df = ak.stock_zh_index_daily_tx(symbol=code)
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.set_index('date')
+        df = df[['open', 'close', 'high', 'low', 'amount']]
+        df.columns = ['OPEN', 'CLOSE', 'HIGH', 'LOW', 'VOLUME']
+        df = df[df.index >= start_date]
+        df = df.sort_index()
+        return df
+
+    df, err = _run_with_timeout(s_tx)
+    if df is not None and len(df) > 0:
+        print(f'  OHLCV源3(腾讯)成功: {len(df)}条')
+        return df
+    errors.append(f'腾讯: {err or "空数据"}')
+    print(f'  OHLCV源3(腾讯)失败: {err}')
+
+    print(f'  OHLCV全部数据源失败: {" | ".join(errors)}')
+    return None
 
 
 def fetch_pe_ttm(name_cn, start_date):
