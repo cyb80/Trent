@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import akshare as ak
@@ -201,15 +202,14 @@ def _run_with_timeout(fn, timeout=25):
     return result['val'], None
 
 
-def fetch_akshare_daily(code, start_date):
+def fetch_akshare_daily(code, start_date, attempts=3, backoff=10):
     """从多个数据源获取指数日线数据（东方财富→新浪→腾讯），返回标准DataFrame
 
     说明: 新浪/东财对部分服务器IP（如GitHub Actions）会拒绝连接, 因此保留多源兜底。
     腾讯源的amount列与"新浪volume÷100"完全一致（单位: 手），可直接用作VOLUME。
+    每个源最多尝试attempts次(间隔backoff秒), 应对数据源对服务器IP的间歇性拦截。
+    返回 (df, ok): ok=True表示至少有一个源成功。
     """
-    errors = []
-
-    # 源1: 东方财富 (akshare)
     def s_em():
         df = ak.stock_zh_index_daily_em(symbol=code)
         df['date'] = pd.to_datetime(df['date'])
@@ -220,13 +220,6 @@ def fetch_akshare_daily(code, start_date):
         df = df.sort_index()
         return df
 
-    df, err = _run_with_timeout(s_em)
-    if df is not None and len(df) > 0:
-        return df
-    errors.append(f'东财EM: {err or "空数据"}')
-    print(f'  OHLCV源1(东财EM)失败: {err}')
-
-    # 源2: 新浪
     def s_sina():
         df = ak.stock_zh_index_daily(symbol=code)
         df['date'] = pd.to_datetime(df['date'])
@@ -239,15 +232,8 @@ def fetch_akshare_daily(code, start_date):
         df = df.sort_index()
         return df
 
-    df, err = _run_with_timeout(s_sina)
-    if df is not None and len(df) > 0:
-        print(f'  OHLCV源2(新浪)成功: {len(df)}条')
-        return df
-    errors.append(f'新浪: {err or "空数据"}')
-    print(f'  OHLCV源2(新浪)失败: {err}')
-
-    # 源3: 腾讯 (amount列即手数, 与新浪÷100一致)
     def s_tx():
+        # 腾讯 (amount列即手数, 与新浪÷100一致)
         df = ak.stock_zh_index_daily_tx(symbol=code)
         df['date'] = pd.to_datetime(df['date'])
         df = df.set_index('date')
@@ -257,15 +243,22 @@ def fetch_akshare_daily(code, start_date):
         df = df.sort_index()
         return df
 
-    df, err = _run_with_timeout(s_tx)
-    if df is not None and len(df) > 0:
-        print(f'  OHLCV源3(腾讯)成功: {len(df)}条')
-        return df
-    errors.append(f'腾讯: {err or "空数据"}')
-    print(f'  OHLCV源3(腾讯)失败: {err}')
+    errors = []
+    for src_name, fn in [('东财EM', s_em), ('新浪', s_sina), ('腾讯', s_tx)]:
+        last_err = None
+        for i in range(attempts):
+            df, err = _run_with_timeout(fn, 25)
+            if df is not None and len(df) > 0:
+                print(f'  OHLCV源({src_name})成功: {len(df)}条' + (f' (第{i + 1}次尝试)' if i else ''))
+                return df, True
+            last_err = err or '空数据'
+            if i < attempts - 1:
+                time.sleep(backoff)
+        errors.append(f'{src_name}: {last_err}')
+        print(f'  OHLCV源({src_name}){attempts}次尝试均失败: {last_err}')
 
     print(f'  OHLCV全部数据源失败: {" | ".join(errors)}')
-    return None
+    return None, False
 
 
 def fetch_pe_ttm(name_cn, start_date):
@@ -322,6 +315,7 @@ def update_xlsx_from_akshare():
     print('正在从akshare获取全量数据（OHLCV + PE_TTM + 国债收益率）...')
     dict_data = pd.read_excel(XLSX_PATH, index_col=0, sheet_name=None)
     updated = False
+    ohlc_fail = []  # OHLCV全部数据源失败的指数
 
     # ---- 1. 更新OHLCV ----
     print('  --- OHLCV增量更新 ---')
@@ -345,7 +339,9 @@ def update_xlsx_from_akshare():
         today_bj = now_bj.strftime('%Y-%m-%d')
         in_session = now_bj.hour < 15  # 北京时间15:00前视为盘中(当日数据不完整)
 
-        new_data = fetch_akshare_daily(code, start_date)
+        new_data, src_ok = fetch_akshare_daily(code, start_date)
+        if not src_ok:
+            ohlc_fail.append(display_name)
         if new_data is None or len(new_data) == 0:
             print(f'  [{display_name}] OHLCV无新数据')
         else:
@@ -440,6 +436,16 @@ def update_xlsx_from_akshare():
         print(f'xlsx文件已更新: {XLSX_PATH}')
     else:
         print('无需更新')
+
+    # ---- 5. 写数据源状态文件(供deploy.yml最后一步检查, 全源失败时Actions标红告警) ----
+    status = {'ok': not ohlc_fail}
+    if ohlc_fail:
+        status['detail'] = (f'OHLCV数据源全部失败(东财/新浪/腾讯各重试3次): {", ".join(ohlc_fail)}。'
+                            f'页面数据可能滞后, 详见运行日志; 晚间20:30定时任务会自动重试')
+    status_path = os.path.join(DATA_DIR, 'fetch_status.json')
+    with open(status_path, 'w', encoding='utf-8') as f:
+        json.dump(status, f, ensure_ascii=False)
+    print(f'数据源状态: {"正常" if status["ok"] else "异常(" + status["detail"] + ")"}')
     return True
 
 

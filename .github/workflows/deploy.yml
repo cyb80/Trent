@@ -4,6 +4,10 @@ on:
   schedule:
     # 每天 UTC 08:30 运行（北京时间 16:30）— 收市后统一更新
     - cron: "30 8 * * *"
+    # 每天 UTC 12:30 运行（北京时间 20:30）— 晚间重试, 数据源对GitHub服务器IP间歇性拦截时自动补漏
+    - cron: "30 12 * * *"
+    # 每天 UTC 00:00 运行（北京时间 08:00）— 早间补漏, 确保开盘前页面已是最新收盘数据
+    - cron: "0 0 * * *"
   workflow_dispatch: # 支持手动触发
   push:
     branches: [main]
@@ -58,3 +62,8 @@ jobs:
       - name: 部署到 GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # 最后一步: 数据源状态检查。OHLCV全源失败时任务标红, GitHub会发送失败邮件通知,
+      # 但数据提交/部署已在前面的步骤完成, 不影响线上页面
+      - name: 数据源状态检查
+        run: python -c "import json,sys; s=json.load(open('data/fetch_status.json',encoding='utf-8')); print(s.get('detail','数据源正常')); sys.exit(0 if s.get('ok') else 1)"
