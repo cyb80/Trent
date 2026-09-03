@@ -58,7 +58,7 @@
       <a href="stock_bond.html">股债性价比</a>
       <a href="graham.html">格雷厄姆指数</a>
       <a href="rsrs.html">RSRS择时</a>
-      <a href="ma200.html" class="active">MA200择时</a>
+      <a href="earn_discount.html" class="active">吃贴水</a>
     </nav>
   </div>
 </header>
@@ -104,10 +104,19 @@
     <div id="latest-data" class="mini-table" style="margin-top:4px;"></div>
   </div>
 
-  <!-- 策略说明 -->
-  <div class="chart-card">
-    <h3>策略说明</h3>
+  <!-- 策略逻辑说明 + 参数配置 -->
+  <div class="chart-card" style="margin-bottom:24px;">
+    <h3>策略逻辑说明</h3>
     <div class="desc-block" id="strategy-desc"></div>
+    <div class="desc-block">
+      <h4>参数配置</h4>
+      <table class="mini-table" id="params-table">
+        <thead>
+          <tr><th style="width:22%">参数</th><th style="width:56%">说明</th><th style="width:22%">当前值</th></tr>
+        </thead>
+        <tbody><tr><td colspan="3">加载中...</td></tr></tbody>
+      </table>
+    </div>
   </div>
 
   <div id="data-source" class="data-source"></div>
