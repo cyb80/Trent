@@ -42,6 +42,14 @@ jobs:
       - name: 生成股债性价比和格雷厄姆指数数据
         run: python fetch_data.py
 
+      # fetch_ma200.py：从已更新的xlsx读取中证500/中证1000现货收盘，输出MA200择时活数据
+      - name: 生成MA200择时活数据
+        run: python fetch_ma200.py
+
+      # gen_ma200_backtest.py：akshare拉IC/IM股指期货→重建近月净值→回测曲线延伸到最新交易日
+      - name: 生成MA200回测曲线(动态延伸)
+        run: python gen_ma200_backtest.py
+
       - name: 提交更新的数据文件（跳过 CI 防循环）
         run: |
           git config user.name "github-actions[bot]"

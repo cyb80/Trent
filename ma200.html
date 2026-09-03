@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IC/IM吃贴水·仅200日均线择时 - 量化择时</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  .chart-container { height: 460px; }
+  /* 当前持仓建议面板 */
+  .pos-banner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: center;
+    padding: 16px 14px;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    border: 1px solid #e3e8f2;
+  }
+  .pos-banner.top { background: linear-gradient(135deg,#fff,#f6f8ff); }
+  .pos-title { font-size: 1.15rem; font-weight: 700; color: #1a237e; }
+  .pos-tag {
+    display: inline-block; padding: 5px 14px; border-radius: 16px;
+    color:#fff; font-weight: 700; font-size: 0.95rem;
+  }
+  .pos-tag.strong { background:#e53935; }
+  .pos-tag.flat   { background:#78909c; }
+  .pos-tag.weak   { background:#43a047; }
+  .pos-meta { color:#666; font-size:0.82rem; line-height:1.7; }
+  .weight-row { display:flex; flex-wrap:wrap; gap:24px; margin-top:6px; }
+  .weight-item { text-align:center; }
+  .weight-item .k { font-size:0.75rem; color:#888; }
+  .weight-item .v { font-size:1.15rem; font-weight:700; color:#1a237e; }
+  .weight-item .v.expo { color:#c62828; }
+  .mini-table { width:100%; border-collapse:collapse; font-size:0.85rem; margin-top:6px; }
+  .mini-table th,.mini-table td { padding:6px 8px; text-align:center; border-bottom:1px solid #f0f0f0; }
+  .mini-table th { background:#f7f9ff; color:#555; font-weight:600; }
+  .badge { display:inline-block; padding:2px 9px; border-radius:10px; font-size:0.75rem; }
+  .badge.strong { background:#ffebee; color:#c62828; font-weight:600; }
+  .badge.weak   { background:#e8f5e9; color:#2e7d32; font-weight:600; }
+  .badge.yes    { background:#e8f5e9; color:#2e7d32; font-weight:600; }
+  .badge.no     { background:#eceff1; color:#607d8b; }
+  .realtime-status { font-size:0.78rem; color:#999; font-weight:400; margin-left:6px; }
+  .rt-source { font-size:0.75rem; color:#bbb; }
+  .desc-block p { color:#555; font-size:0.88rem; margin:6px 0; line-height:1.75; }
+  .desc-block h4 { color:#1a237e; margin:12px 0 4px; font-size:0.95rem; }
+  .desc-block code { background:#f2f3f7; padding:1px 6px; border-radius:4px; font-size:0.82rem; }
+</style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <h1><a href="index.html">量化择时</a></h1>
+    <nav>
+      <a href="index.html">首页</a>
+      <a href="stock_bond.html">股债性价比</a>
+      <a href="graham.html">格雷厄姆指数</a>
+      <a href="rsrs.html">RSRS择时</a>
+      <a href="ma200.html" class="active">MA200择时</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-title">
+    <h2>IC/IM 吃贴水 · 仅200日均线择时</h2>
+    <p>股指期货吃贴水 + 200日均线长期趋势择时，动态调整 IC/IM 权重与总敞口</p>
+  </div>
+
+  <!-- 当前持仓建议（盘中每30分钟按实时价重算） -->
+  <div class="chart-card" style="margin-bottom:24px;">
+    <h3>当前持仓建议 <span id="realtime-status" class="realtime-status"></span></h3>
+    <div id="pos-banner" class="pos-banner top">
+      <div>
+        <div class="pos-title" id="pos-label">-</div>
+        <div class="pos-meta" id="pos-desc">-</div>
+      </div>
+      <div class="weight-row" id="weight-row"></div>
+    </div>
+    <table class="mini-table" id="mini-table">
+      <thead>
+        <tr>
+          <th>品种</th><th>现货最新价</th><th>200日均线</th>
+          <th>趋势</th><th>低波动</th><th>目标权重</th>
+        </tr>
+      </thead>
+      <tbody><tr><td colspan="6">加载中...</td></tr></tbody>
+    </table>
+    <div class="rt-source" id="rt-source"></div>
+  </div>
+
+  <!-- 回测净值曲线 -->
+  <div class="chart-card" style="margin-bottom:24px;">
+    <h3 id="nav-title">回测净值曲线（策略 vs 中证1000基准）</h3>
+    <div id="chart-nav" class="chart-container"></div>
+    <div id="nav-metrics" class="pos-meta" style="padding:6px 4px 0;"></div>
+  </div>
+
+  <!-- 最新数据 -->
+  <div class="chart-card" style="margin-bottom:24px;">
+    <h3>最新现货数据（数据文件更新日）</h3>
+    <div id="latest-data" class="mini-table" style="margin-top:4px;"></div>
+  </div>
+
+  <!-- 策略说明 -->
+  <div class="chart-card">
+    <h3>策略说明</h3>
+    <div class="desc-block" id="strategy-desc"></div>
+  </div>
+
+  <div id="data-source" class="data-source"></div>
+</main>
+
+<footer>
+  <p>策略框架见《当前较简介的候选策略.md》；回测数据源：股指期货单合约 + 中证500/中证1000现货（via akshare）</p>
+  <p>低波动在盘中用现货指数60日收益波动率近似；实时持仓建议仅供调仓参考，不构成投资建议。</p>
+</footer>
+
+<script src="data/ma200_backtest.js"></script>
+<script src="data/ma200_live.js"></script>
+<script src="js/ma200_realtime.js"></script>
+</body>
+</html>
