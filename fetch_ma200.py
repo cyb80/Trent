@@ -48,19 +48,26 @@ def target_weights(ic_strong, im_strong, ic_lv, im_lv):
 
 
 def confirmed_trend(raw):
-    """与回测一致: 状态连续 CONF_DAYS 天成立才切换。返回0/1 ndarray。"""
+    """与回测一致(正确确认): 新方向连续 CONF_DAYS 天才切换, 未确认前维持旧状态。返回0/1 ndarray。"""
     vals = raw.astype(float).fillna(0).values
     state = np.zeros(len(vals))
-    streak, cur = 0, None
+    cur = None
+    pending_val, pending_cnt = None, 0
     for i, v in enumerate(vals):
         if cur is None:
-            streak, cur = 1, v
-        elif v == cur:
-            streak += 1
-        else:
-            streak, cur = 1, v
-        if streak >= CONF_DAYS:
             cur = v
+        elif pending_val is not None:
+            if v == pending_val:
+                pending_cnt += 1
+                if pending_cnt >= CONF_DAYS:
+                    cur = pending_val
+                    pending_val = None
+            else:
+                pending_val, pending_cnt = None, 0
+                if v != cur:
+                    pending_val, pending_cnt = v, 1
+        elif v != cur:
+            pending_val, pending_cnt = v, 1
         state[i] = cur
     return state
 

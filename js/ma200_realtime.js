@@ -95,23 +95,36 @@
     return out;
   }
   function confirmedTrend(raw) {
-    // 与 fetch_ma200.py confirmed_trend 一致
+    // 正确连续确认：新方向须连续 CONF 天才切换, 未确认前维持旧状态 (与回测一致)
     var state = new Array(raw.length).fill(0),
+      conf = live ? live.confirm_days || 5 : 5,
       cur = null,
-      streak = 0,
+      pending = null,
+      pcnt = 0,
       i;
     for (i = 0; i < raw.length; i++) {
       var v = raw[i] ? 1 : 0;
       if (cur === null) {
-        streak = 1;
         cur = v;
-      } else if (v === cur) {
-        streak += 1;
-      } else {
-        streak = 1;
-        cur = v;
+      } else if (pending !== null) {
+        if (v === pending) {
+          pcnt += 1;
+          if (pcnt >= conf) {
+            cur = pending;
+            pending = null;
+          }
+        } else {
+          pending = null;
+          pcnt = 0;
+          if (v !== cur) {
+            pending = v;
+            pcnt = 1;
+          }
+        }
+      } else if (v !== cur) {
+        pending = v;
+        pcnt = 1;
       }
-      if (streak >= CONF) cur = v;
       state[i] = cur;
     }
     return state;
@@ -682,13 +695,15 @@
       (live.median_win || 6) +
       " 个月中位数即视为低波动。不使用贴水权重微调。</p>" +
       "<h4>回测口径</h4>" +
-      "<p>近月合约提前5日换月，换月成本 2×单边 2bp；信号相对收益区间滞后 2 个交易日，避免收盘价前视。评价期 " +
+      "<p>趋势状态在连续 " +
+      (live.confirm_days || 5) +
+      " 日成立后确认，确认次日（滞后 1 日）依信号调整仓位，避免当日收盘价前视。近月合约提前5日换月，换月成本 2×单边 2bp。评价期 " +
       back.eval_start +
       " ~ " +
       back.eval_end +
       "，基准为 <code>中证1000</code> 买入持有现金收益率。</p>" +
       "<h4>盘中实时指导口径</h4>" +
-      '<p>交易时间每 30 分钟取中证500/中证1000现货实时价作为"当日收盘价"，重算 200 日均线趋势与低波动，得到当前应持有的 IC/IM 目标权重与总敞口，用于指导调仓。低波动盘中用现货指数收盘收益的 60 日波动率近似（实盘以期货反映更准确）。</p>';
+      '<p>每次打开/刷新页面即取中证500/中证1000现货实时价作为"当日收盘价"，重算 200 日均线趋势（连续5日确认）与低波动，得到当前应持有的 IC/IM 目标权重与总敞口，用于指导调仓。低波动盘中用现货指数收盘收益的 60 日波动率近似（实盘以期货反映更准确）。</p>';
 
     // 参数配置表
     var params = [
@@ -697,7 +712,7 @@
       ["波动率窗口", "近月净收益波动率计算窗口", live.vol60 + " 日"],
       ["中位数窗口", "判断低波动的滚动中位数窗口", live.median_win + " 月"],
       ["单边成本", "每次权重/换月成本（单边）", "2bp（0.02%）"],
-      ["信号滞后", "信号相对收益区间滞后交易日", "2 天"],
+      ["信号滞后", "确认状态后调整仓位", "1 天（次日）"],
       ["换月规则", "近月合约切换", "提前 5 交易日"],
       ["双强·低波动", "IC/IM 权重（总敞口）", W["双强·低波动"]],
       ["双强·非低波动", "IC/IM 权重（总敞口）", W["双强·非低波动"]],

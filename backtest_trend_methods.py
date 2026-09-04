@@ -163,10 +163,49 @@ def confirm_trend(raw, conf_days):
     return pd.Series(state, index=raw.index)
 
 
+def confirm_trend_delayed(raw, conf_days):
+    """真正的连续确认：新方向须连续 conf_days 天才切换，未确认前维持原状态。
+    与确认前版本(立即翻转/无确认)对照，用于核实"5日确认"是否真的造成交易延误。"""
+    vals = raw.fillna(0).values
+    n = len(vals)
+    state = np.zeros(n)
+    cur = vals[0]
+    state[0] = cur
+    pending_val = None
+    pending_cnt = 0
+    for i in range(1, n):
+        v = vals[i]
+        if pending_val is not None:
+            if v == pending_val:
+                pending_cnt += 1
+                if pending_cnt >= conf_days:
+                    cur = pending_val
+                    pending_val = None
+            else:
+                pending_val = None
+                pending_cnt = 0
+                if v != cur:
+                    pending_val = v
+                    pending_cnt = 1
+        else:
+            if v != cur:
+                pending_val = v
+                pending_cnt = 1
+        state[i] = cur
+    return pd.Series(state, index=raw.index)
+
+
 def build_trend(sym, index_close, calendar, mas):
     raw = raw_strong(index_close, mas).reindex(index_close.index)
     raw = raw.where(index_close.index.isin(calendar))
-    return confirm_trend(raw, CONF_DAYS)  # 已定义在日历index内
+    # CONFIRM 全局开关（默认 True=原策略确认逻辑）：
+    #   CONFIRM_DELAYED=True  → 真正"连续5日确认才切换"(对照用)
+    #   CONFIRM=False         → 收盘即确认(去确认)
+    if globals().get("CONFIRM", True):
+        if globals().get("CONFIRM_DELAYED", False):
+            return confirm_trend_delayed(raw, CONF_DAYS)
+        return confirm_trend(raw, CONF_DAYS)
+    return raw
 
 
 # ---------- 5. 单品种近月净收益与换月标记 ----------

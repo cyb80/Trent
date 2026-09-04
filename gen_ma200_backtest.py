@@ -40,7 +40,7 @@ BACKFILL_START = (2022, 1)   # 需覆盖 eval_start(2023-05) 之前的 vol60+波
 MA = 200
 ANNUAL = bt.ANNUAL
 SINGLE_COST = bt.SINGLE_COST
-LAG = bt.LAG
+NAV_LAG = 1  # 正确5日确认后, 次日(滞后1日)调整仓位
 CSV_COLS = ['date', 'IC_sel', 'IC_close', 'IC_ret', 'IC_roll',
             'IM_sel', 'IM_close', 'IM_ret', 'IM_roll']
 
@@ -218,6 +218,9 @@ def build_nav(table):
     ret_ic, roll_ic = leg('IC')
     ret_im, roll_im = leg('IM')
 
+    # 正确5日确认(未确认前维持旧状态), 之后信号滞后 NAV_LAG 日调整仓位
+    bt.CONFIRM = True
+    bt.CONFIRM_DELAYED = True
     tre_ic = bt.build_trend('IC', idx['IC'], calendar, [MA])
     tre_im = bt.build_trend('IM', idx['IM'], calendar, [MA])
 
@@ -250,13 +253,13 @@ def build_nav(table):
                 w_ic[i] = 0.125; w_im[i] = 0.125
         return pd.Series(w_ic, index=ts), pd.Series(w_im, index=ts)
 
-    sig_ic, sig_im = weight_from(calendar[:-LAG] if LAG > 0 else calendar)
+    sig_ic, sig_im = weight_from(calendar[:-NAV_LAG] if NAV_LAG > 0 else calendar)
     w_ic = pd.Series(index=calendar, dtype=float)
     w_im = pd.Series(index=calendar, dtype=float)
     for k, dt in enumerate(calendar):
-        if k >= LAG:
-            w_ic.loc[dt] = sig_ic.loc[calendar[k - LAG]]
-            w_im.loc[dt] = sig_im.loc[calendar[k - LAG]]
+        if k >= NAV_LAG:
+            w_ic.loc[dt] = sig_ic.loc[calendar[k - NAV_LAG]]
+            w_im.loc[dt] = sig_im.loc[calendar[k - NAV_LAG]]
     w_ic = w_ic.ffill(); w_im = w_im.ffill()
 
     comb = w_ic * ret_ic + w_im * ret_im
@@ -309,7 +312,9 @@ def write_js(nav):
         'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'eval_start': nav['eval_start'],
         'eval_end': nav['eval_end'],
-        'trend_method': '仅200日均线',
+        'trend_method': '仅200日均线(正确5日确认,信号滞后1日)',
+        'confirm_days': 5,
+        'signal_lag': NAV_LAG,
         'dates': nav['dates'],
         'strat_nav': nav['strat_nav'],
         'bench_nav': nav['bench_nav'],
