@@ -512,14 +512,16 @@
     if (!an.L || !an.S) {
       rows2 = '<tr><td colspan="5">候选合约不足 2 个，本期不建仓</td></tr>';
     } else {
-      var loOK = an.L.b <= lo, shOK = an.S.b >= sh;
+      // 注意：analyse() 返回的 b 是小数(-0.1142)，而 lo/sh 阈值是百分数(-5/1)，比较前需 ×100
+      var Lb = an.L.b * 100, Sb = an.S.b * 100;
+      var loOK = Lb <= lo, shOK = Sb >= sh;
       rows2 =
         "<tr><td class='l'><b>多头腿</b></td><td><b>" + an.L.c + "</b>（" + an.L.prod + "）</td>"
-        + '<td class="' + (an.L.b < 0 ? "profit-pos" : "profit-neg") + '">' + num(an.L.b * 100, 2) + "%</td>"
+        + '<td class="' + (Lb < 0 ? "profit-pos" : "profit-neg") + '">' + num(Lb, 2) + "%</td>"
         + '<td><span class="badge ' + (loOK ? "open" : "flat") + '">' + (loOK ? "≤ " + num(lo, 2) + "%，达标" : "> " + num(lo, 2) + "%，不达标") + "</span></td>"
         + "<td>" + legTag(loOK) + "</td></tr>"
         + "<tr><td class='l'><b>空头腿</b></td><td><b>" + an.S.c + "</b>（" + an.S.prod + "）</td>"
-        + '<td class="' + (an.S.b > 0 ? "profit-neg" : "profit-pos") + '">' + num(an.S.b * 100, 2) + "%</td>"
+        + '<td class="' + (Sb > 0 ? "profit-neg" : "profit-pos") + '">' + num(Sb, 2) + "%</td>"
         + '<td><span class="badge ' + (shOK ? "open" : "flat") + '">' + (shOK ? "≥ " + num(sh, 2) + "%，达标" : "< " + num(sh, 2) + "%，不达标") + "</span></td>"
         + "<td>" + legTag(shOK) + "</td></tr>";
     }
