@@ -50,6 +50,16 @@ jobs:
       - name: 生成MA200回测曲线(动态延伸)
         run: python gen_ma200_backtest.py
 
+      # fetch_v6_futures.py：中金所月度归档 → IH/IF/IC/IM 全部月份合约日收盘（增量）。
+      # 数据源对海外IP可能间歇性拦截, 失败时继续使用仓库内已有 csv, 不阻断部署。
+      - name: 更新V6股指期货全月份合约数据
+        continue-on-error: true
+        run: python fetch_v6_futures.py
+
+      # gen_v6_backtest.py：按《V6策略说明文档.md》回测 → 输出 v6_backtest.js / v6_live.js
+      - name: 生成V6基差轮动回测与实时持仓数据
+        run: python gen_v6_backtest.py
+
       - name: 提交更新的数据文件（跳过 CI 防循环）
         run: |
           git config user.name "github-actions[bot]"

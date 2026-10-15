@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>股指期货基差轮动(V6) - 量化择时</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  .chart-container { height: 460px; }
+  .chart-container.small { height: 340px; }
+  .dual-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    gap: 14px; margin-bottom: 12px;
+  }
+  .pos-banner {
+    padding: 14px 16px; border-radius: 10px; border: 1px solid #e3e8f2;
+  }
+  .pos-banner.cur  { background: linear-gradient(135deg,#fff,#f4f7ff); }
+  .pos-banner.live { background: linear-gradient(135deg,#fff,#f6fdf8); }
+  .pos-head { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px; }
+  .pos-title { font-size: 1.02rem; font-weight: 700; color: #1a237e; }
+  .pos-sub { font-size: 0.78rem; color: #888; }
+  .pos-tag {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    color:#fff; font-weight: 700; font-size: 0.78rem;
+  }
+  .pos-tag.open { background:#e53935; }
+  .pos-tag.flat { background:#78909c; }
+  .pos-tag.short { background:#2e7d32; }
+  .mini-table { width:100%; border-collapse:collapse; font-size:0.85rem; margin-top:8px; }
+  .mini-table th,.mini-table td { padding:6px 8px; text-align:center; border-bottom:1px solid #f0f0f0; }
+  .mini-table th { background:#f7f9ff; color:#555; font-weight:600; white-space:nowrap; }
+  .mini-table td.l, .mini-table th.l { text-align:left; }
+  .mini-table tbody tr:hover { background:#fafcff; }
+  .mini-table th.sortable { cursor:pointer; user-select:none; }
+  .profit-pos { color:#c62828; font-weight:600; }
+  .profit-neg { color:#2e7d32; font-weight:600; }
+  .badge { display:inline-block; padding:2px 9px; border-radius:10px; font-size:0.75rem; font-weight:600; }
+  .badge.open  { background:#ffebee; color:#c62828; }
+  .badge.flat  { background:#eceff1; color:#607d8b; }
+  .badge.short { background:#e8f5e9; color:#2e7d32; }
+  .realtime-status { font-size:0.78rem; color:#999; font-weight:400; margin-left:6px; }
+  .rt-source { font-size:0.75rem; color:#aaa; margin-top:8px; line-height:1.6; }
+  .kpi-grid {
+    display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:14px;
+  }
+  .kpi-card {
+    background:#fff; border-radius:12px; padding:16px 18px;
+    box-shadow:0 2px 12px rgba(0,0,0,0.06); border-top:3px solid #3949ab;
+  }
+  .kpi-card.neg { border-top-color:#e53935; }
+  .kpi-card .k { font-size:0.78rem; color:#888; }
+  .kpi-card .v { font-size:1.5rem; font-weight:700; color:#1a237e; margin-top:2px; }
+  .kpi-card .v.neg { color:#c62828; }
+  .kpi-card .s { font-size:0.72rem; color:#aaa; }
+  .param-row {
+    display:flex; flex-wrap:wrap; gap:14px; align-items:center;
+    padding:10px 4px 14px; font-size:0.85rem; color:#555;
+  }
+  .param-row input[type=number] {
+    width:80px; padding:5px 8px; border:1px solid #cfd8e3; border-radius:6px; font-size:0.85rem;
+  }
+  .param-row button {
+    padding:6px 16px; border:none; border-radius:6px; background:#3949ab; color:#fff;
+    font-size:0.85rem; cursor:pointer;
+  }
+  .param-row button.ghost { background:#eceff1; color:#455a64; }
+  .param-row button:hover { opacity:0.9; }
+  .param-note { color:#8b8b8b; font-size:0.78rem; }
+  .desc-block p { color:#555; font-size:0.88rem; margin:6px 0; line-height:1.75; }
+  .desc-block h4 { color:#1a237e; margin:14px 0 4px; font-size:0.95rem; }
+  .desc-block code { background:#f2f3f7; padding:1px 6px; border-radius:4px; font-size:0.82rem; }
+  .desc-block ul { margin:4px 0 4px 20px; color:#555; font-size:0.88rem; line-height:1.75; }
+  .tbl-scroll { max-height:420px; overflow-y:auto; }
+  .tbl-scroll thead th { position:sticky; top:0; z-index:1; }
+</style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <h1><a href="index.html">量化择时</a></h1>
+    <nav>
+      <a href="index.html">首页</a>
+      <a href="stock_bond.html">股债性价比</a>
+      <a href="graham.html">格雷厄姆指数</a>
+      <a href="rsrs.html">RSRS择时</a>
+      <a href="earn_discount.html">吃贴水</a>
+      <a href="v6_basis.html" class="active">基差轮动</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-title">
+    <h2>股指期货基差轮动（V6）</h2>
+    <p>在 IH/IF/IC/IM 全部在挂月份合约中，做多年化基差率最小（贴水最深）、做空年化基差率最大（升水最高）者；每月最后一个交易日按收盘价调仓</p>
+  </div>
+
+  <!-- 当前持仓建议：当前持仓期（左） + 若今日调仓（右） -->
+  <div class="chart-card" style="margin-bottom:24px;">
+    <h3>当前持仓建议 <span id="realtime-status" class="realtime-status"></span></h3>
+    <div class="dual-grid">
+      <div class="pos-banner cur">
+        <div class="pos-head">
+          <div class="pos-title">① 当前持仓期（实际应持）</div>
+          <div class="pos-sub" id="cur-period">-</div>
+        </div>
+        <table class="mini-table" id="cur-table">
+          <thead><tr><th class="l">腿</th><th>合约</th><th>调仓日年化基差</th><th>调仓日收盘</th><th>实时价</th><th>期间收益</th><th>状态</th></tr></thead>
+          <tbody><tr><td colspan="7">加载中...</td></tr></tbody>
+        </table>
+        <div class="pos-sub" id="cur-pnl" style="margin-top:8px;"></div>
+      </div>
+
+      <div class="pos-banner live">
+        <div class="pos-head">
+          <div class="pos-title">② 若今日调仓（实时价重算）</div>
+          <div class="pos-sub" id="live-period">-</div>
+        </div>
+        <table class="mini-table" id="live-table">
+          <thead><tr><th class="l">腿</th><th>候选合约</th><th>年化基差</th><th>是否达阈值</th><th>建议</th></tr></thead>
+          <tbody><tr><td colspan="5">加载中...</td></tr></tbody>
+        </table>
+        <div class="pos-sub" id="live-note" style="margin-top:8px;"></div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:14px;">全市场年化基差排名（按实时价）</h3>
+    <div class="tbl-scroll">
+      <table class="mini-table" id="rank-table">
+        <thead><tr><th>排名</th><th>合约</th><th>品种</th><th>到期日</th><th>剩余自然日</th><th>期货价</th><th>现货价</th><th>升贴水率</th><th>年化基差率</th><th>说明</th></tr></thead>
+        <tbody><tr><td colspan="10">加载中...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="rt-source" id="rt-source"></div>
+  </div>
+
+  <!-- KPI -->
+  <div class="chart-card" style="margin-bottom:24px;">
+    <h3>历史业绩（回测 <span id="kpi-range">-</span> · <span id="kpi-periods">-</span> 个持仓期）</h3>
+    <div class="kpi-grid" id="kpi-grid"></div>
+    <div class="param-row">
+      <span>多头腿阈值（年化基差 ≤）：<input id="in-lo" type="number" step="0.5" value="-5"> %</span>
+      <span>空头腿阈值（年化基差 ≥）：<input id="in-sh" type="number" step="0.5" value="1"> %</span>
+      <button id="btn-apply">重算</button>
+      <button id="btn-reset" class="ghost">恢复默认</button>
+      <span class="param-note" id="param-note"></span>
+    </div>
+  </div>
+
+  <!-- 净值 + 回撤 -->
+  <div class="chart-card" style="margin-bottom:24px;">
+    <h3>策略净值与回撤曲线</h3>
+    <div id="chart-nav" class="chart-container"></div>
+    <div id="nav-metrics" class="rt-source" style="font-size:0.82rem;color:#666;"></div>
+  </div>
+
+  <!-- 分年度收益 -->
+  <div class="chart-card" style="margin-bottom:24px;">
+    <h3>分年度收益（%）</h3>
+    <div id="chart-year" class="chart-container small"></div>
+  </div>
+
+  <!-- 调仓明细 -->
+  <div class="chart-card" style="margin-bottom:24px;">
+    <h3>调仓明细（共 <span id="period-count">-</span> 期）</h3>
+    <div class="tbl-scroll">
+      <table class="mini-table" id="period-table">
+        <thead>
+          <tr>
+            <th class="sortable" data-k="idx">#</th>
+            <th class="sortable" data-k="T">调仓日</th>
+            <th class="sortable" data-k="Tn">下个调仓日</th>
+            <th class="sortable" data-k="long_c">做多合约</th>
+            <th class="sortable" data-k="long_b">做多年化基差%</th>
+            <th class="sortable" data-k="short_c">做空合约</th>
+            <th class="sortable" data-k="short_b">做空年化基差%</th>
+            <th class="sortable" data-k="legs">开仓腿</th>
+            <th class="sortable" data-k="ret">区间收益%</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="9">加载中...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 品种归因 -->
+  <div class="chart-card" style="margin-bottom:24px;">
+    <h3>收益拆解（腿 × 品种）</h3>
+    <table class="mini-table" id="attr-table">
+      <thead><tr><th>腿</th><th>品种</th><th>次数</th><th>单期胜率</th><th>平均单期收益%</th><th>累计收益%</th></tr></thead>
+      <tbody><tr><td colspan="6">加载中...</td></tr></tbody>
+    </table>
+    <div class="rt-source" id="leg-nav-note"></div>
+  </div>
+
+  <!-- 策略规则说明 -->
+  <div class="chart-card" style="margin-bottom:24px;">
+    <h3>策略规则说明</h3>
+    <div class="desc-block" id="strategy-desc"></div>
+    <div class="desc-block">
+      <h4>参数配置</h4>
+      <table class="mini-table" id="params-table">
+        <thead><tr><th style="width:24%">参数</th><th style="width:56%">说明</th><th style="width:20%">当前值</th></tr></thead>
+        <tbody><tr><td colspan="3">加载中...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="data-source" class="data-source"></div>
+</main>
+
+<footer>
+  <p>策略框架见《V6策略说明文档.md》；数据源：中金所官方日行情（全部月份合约）+ 对应现货指数收盘价（via akshare）</p>
+  <p>盘中实时价来自东方财富，仅用于估算当日若调仓的最优合约与持仓浮盈，不构成投资建议。</p>
+</footer>
+
+<script src="data/v6_backtest.js"></script>
+<script src="data/v6_live.js"></script>
+<script src="js/v6_realtime.js"></script>
+</body>
+</html>
