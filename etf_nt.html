@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETF国家队看板 - 量化择时</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+.page-head { padding: 28px 0 18px; }
+.page-head h2 { font-size: 1.5rem; color: #1a237e; margin-bottom: 6px; }
+.page-head .sub { font-size: 0.85rem; color: #777; line-height: 1.8; }
+.panel {
+  background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  padding: 16px 18px; margin-bottom: 20px;
+}
+.panel-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.panel-head h3 { font-size: 1.02rem; color: #333; }
+.range-btns button {
+  border: 1px solid #d5d9e0; background: #fff; color: #555; font-size: 0.8rem;
+  padding: 4px 12px; margin-left: 6px; border-radius: 4px; cursor: pointer;
+}
+.range-btns button.active { background: #283593; border-color: #283593; color: #fff; }
+.hint { font-size: 0.76rem; color: #999; line-height: 1.7; }
+.table-wrap { overflow-x: auto; }
+.nt-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; white-space: nowrap; }
+.nt-table th, .nt-table td { padding: 7px 9px; text-align: center; border-bottom: 1px solid #eef0f3; }
+.nt-table th { background: #f7f8fa; color: #333; font-weight: 600; cursor: pointer; user-select: none; }
+.nt-table th:hover { color: #1a237e; }
+.nt-table tbody tr { cursor: pointer; }
+.nt-table tbody tr:hover { background: #f5f7ff; }
+.nt-table .name { text-align: left; }
+.nt-table .code { color: #888; font-family: Consolas, monospace; }
+.up { color: #e53935; font-weight: 600; }
+.down { color: #43a047; font-weight: 600; }
+.flat { color: #999; }
+.tag-new {
+  display: inline-block; font-size: 0.68rem; color: #fff; background: #ef6c00;
+  border-radius: 3px; padding: 0 4px; margin-left: 4px; vertical-align: 1px;
+}
+.tag-mkt {
+  display: inline-block; font-size: 0.66rem; border: 1px solid #c5cae9; color: #5c6bc0;
+  border-radius: 3px; padding: 0 3px; margin-left: 4px; vertical-align: 1px;
+}
+.holders-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.holders-table th, .holders-table td { padding: 6px 8px; border-bottom: 1px solid #eef0f3; text-align: center; }
+.holders-table th { background: #f7f8fa; font-weight: 600; }
+.holders-table td.name { text-align: left; white-space: normal; }
+.holders-table tr.nt-row { background: #fff8f2; }
+.holders-table tr.nt-row td.name { font-weight: 600; color: #bf360c; }
+.detail-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.back-link { color: #283593; text-decoration: none; font-size: 0.85rem; }
+.back-link:hover { text-decoration: underline; }
+.stat-line { font-size: 0.82rem; color: #666; }
+.stat-line b { color: #333; }
+@media (max-width: 640px) {
+  .page-head h2 { font-size: 1.2rem; }
+  .nt-table { font-size: 0.76rem; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <h1><a href="index.html">量化择时</a></h1>
+    <nav>
+      <a href="index.html">首页</a>
+      <a href="stock_bond.html">股债性价比</a>
+      <a href="graham.html">格雷厄姆指数</a>
+      <a href="rsrs.html">RSRS择时</a>
+      <a href="earn_discount.html">吃贴水</a>
+      <a href="v6_basis.html">基差轮动</a>
+      <a href="etf_nt.html" class="active">国家队ETF</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <!-- 主页看板 -->
+  <section id="dashboard">
+    <div class="page-head">
+      <h2>ETF 国家队看板</h2>
+      <p class="sub" id="meta-line">数据加载中…</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>国家队 ETF 总份额变化</h3>
+        <div class="range-btns" id="main-range">
+          <button data-days="30">1月</button>
+          <button data-days="90">3月</button>
+          <button data-days="365" class="active">1年</button>
+          <button data-days="1095">3年</button>
+          <button data-days="0">全部</button>
+        </div>
+      </div>
+      <div id="mainChart" style="height:430px;"></div>
+      <p class="hint" id="chart-hint"></p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>国家队持仓占比（半年报/年报口径）</h3>
+        <span class="hint">占比 = 国家队持有份额 ÷ 该报告期 ETF 总份额</span>
+      </div>
+      <div id="ratioChart" style="height:330px;"></div>
+      <p class="hint" id="ratio-hint"></p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>持仓明细</h3>
+        <span class="hint">点击表头排序，点击行查看详情</span>
+      </div>
+      <div class="table-wrap">
+        <table class="nt-table" id="ntTable">
+          <thead>
+            <tr>
+              <th data-key="code">代码</th>
+              <th data-key="name">名称</th>
+              <th data-key="latest_share">最新份额(亿份)</th>
+              <th data-key="c1d">1日</th>
+              <th data-key="c1w">1周</th>
+              <th data-key="c1m">1月</th>
+              <th data-key="c3m">3月</th>
+              <th data-key="c1y">1年</th>
+              <th data-key="nt_hold_ratio">国家队占比</th>
+              <th data-key="nt_hold_change">持仓变化</th>
+              <th data-key="latest_report_date">报告期</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ETF 详情 -->
+  <section id="detail" style="display:none;">
+    <div class="page-head">
+      <div class="detail-top">
+        <a class="back-link" href="etf_nt.html">&larr; 返回看板</a>
+        <h2 id="detail-title"></h2>
+      </div>
+      <p class="sub" id="detail-meta"></p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>价格与份额</h3>
+        <div class="range-btns" id="detail-range">
+          <button data-days="30">1月</button>
+          <button data-days="90">3月</button>
+          <button data-days="365" class="active">1年</button>
+          <button data-days="1095">3年</button>
+          <button data-days="0">全部</button>
+        </div>
+      </div>
+      <div id="detailChart" style="height:430px;"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>十大持有人</h3>
+        <span class="hint" id="holder-hint"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="holders-table" id="holderTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>持有人名称</th>
+              <th>最新持有份额(亿份)</th>
+              <th>占净值比例</th>
+              <th>上期份额(亿份)</th>
+              <th>份额变化</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>数据来源：ETF份额来自上交所/深交所披露；价格来自新浪财经（东方财富备源）；十大持有人来自新浪财经基金披露。</p>
+  <p>口径说明：主图左轴为国家队 ETF 的<b>份额</b>（亿份），右轴为三只指数 ETF 的<b>收盘价格</b>（归一化为首日=100，非份额）；详情页左轴为价格、右轴为份额。</p>
+  <p>份额数据 T+1；十大持有人仅在半年报/年报披露。仅供参考，不构成投资建议。</p>
+</footer>
+
+<script src="data/etf_nt_data.js"></script>
+<script>
+(function () {
+  var D = window.ETF_NT_DATA;
+  if (!D || !D.etfs || !D.etfs.length) {
+    document.getElementById('meta-line').textContent = '数据尚未生成，请先运行 python fetch_etf_nt.py --init';
+    return;
+  }
+
+  function fmtNum(v, d) { return v == null ? '—' : v.toFixed(d); }
+  function fmtPct(v) {
+    if (v == null) return '—';
+    var s = (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+    return s;
+  }
+  function pctClass(v) {
+    if (v == null) return 'flat';
+    if (v > 0) return 'up';
+    if (v < 0) return 'down';
+    return 'flat';
+  }
+  function dateCutoff(dates, days) {
+    if (!dates.length) return 0;
+    if (days <= 0) return 0;          // 0 = 全部历史
+    var end = new Date(dates[dates.length - 1] + 'T00:00:00');
+    end.setDate(end.getDate() - days);
+    for (var i = 0; i < dates.length; i++) {
+      if (new Date(dates[i] + 'T00:00:00') >= end) return i;
+    }
+    return 0;
+  }
+
+  // ───────── 主页 ─────────
+  var reportDates = D.etfs.map(function (e) { return e.latest_report_date; })
+    .filter(Boolean).sort();
+  var latestReport = reportDates.length ? reportDates[reportDates.length - 1] : '—';
+  document.getElementById('meta-line').innerHTML =
+    '份额数据 <b>' + (D.share_dates[0] || '—') + ' 至 ' + (D.latest_share_date || '—') +
+    '</b>（共 ' + D.share_dates.length + ' 个交易日，T+1 披露）｜ 最新持有人报告期 <b>' +
+    latestReport + '</b> ｜ 生成时间 ' + D.generated_at;
+  document.getElementById('chart-hint').innerHTML =
+    '左轴：<b>国家队总份额</b>（沪市国家队持仓 ETF 的合计份额，单位亿份，份额口径）。' +
+    '右轴：<b>三只指数 ETF 的收盘价格</b>（价格口径，非份额；按所选区间首日=100 归一化，仅用于对比涨跌走势）。' +
+    D.notes.total;
+
+  var mainChart = echarts.init(document.getElementById('mainChart'));
+  var rangeDays = 365;
+
+  function renderMain() {
+    var idx = dateCutoff(D.share_dates, rangeDays);
+    // 尾部可能只有深市快照(沪市尚未披露), 主图裁到总份额最后一个有效点
+    var end = D.share_total.length - 1;
+    while (end >= idx && D.share_total[end] == null) end--;
+    var dates = D.share_dates.slice(idx, end + 1);
+    var total = D.share_total.slice(idx, end + 1);
+    var series = [{
+      name: '国家队总份额(沪市)',
+      type: 'line',
+      yAxisIndex: 0,
+      data: total,
+      showSymbol: false,
+      lineStyle: { width: 2.4, color: '#c62828' },
+      itemStyle: { color: '#c62828' }
+    }];
+    var colors = { '510300': '#1e88e5', '510500': '#43a047', '512100': '#f9a825' };
+    Object.keys(D.index_prices).forEach(function (code) {
+      var item = D.index_prices[code];
+      var vals = item.values.slice(idx, end + 1);
+      var base = null;
+      for (var i = 0; i < vals.length; i++) {
+        if (vals[i] != null) { base = vals[i]; break; }
+      }
+      var norm = vals.map(function (v) {
+        return v == null || base == null ? null : +(v / base * 100).toFixed(2);
+      });
+      series.push({
+        name: item.name + '（价格）',
+        type: 'line',
+        yAxisIndex: 1,
+        data: norm,
+        showSymbol: false,
+        lineStyle: { width: 1.2, color: colors[code], opacity: 0.9 },
+        itemStyle: { color: colors[code] }
+      });
+    });
+
+    mainChart.setOption({
+      tooltip: {
+        trigger: 'axis',
+        valueFormatter: function (v) { return v == null ? '—' : v.toFixed(2); }
+      },
+      legend: { top: 0, textStyle: { fontSize: 12 } },
+      grid: { left: 58, right: 62, top: 44, bottom: 46 },
+      xAxis: {
+        type: 'category',
+        data: dates,
+        axisLine: { lineStyle: { color: '#ccc' } },
+        axisLabel: { fontSize: 10, color: '#888' }
+      },
+      yAxis: [{
+        type: 'value', name: '总份额(亿份)', scale: true,
+        nameTextStyle: { fontSize: 11, color: '#666' },
+        axisLabel: { fontSize: 10, color: '#888' },
+        splitLine: { lineStyle: { color: '#f0f0f0' } }
+      }, {
+        type: 'value', name: 'ETF收盘价(首日=100)', scale: true,
+        nameTextStyle: { fontSize: 11, color: '#666' },
+        axisLabel: { fontSize: 10, color: '#888' },
+        splitLine: { show: false }
+      }],
+      dataZoom: [{ type: 'inside' }, {
+        type: 'slider', height: 16, bottom: 8,
+        borderColor: 'transparent', fillerColor: 'rgba(40,53,147,0.12)'
+      }],
+      series: series
+    }, true);
+  }
+
+  renderMain();
+  document.querySelectorAll('#main-range button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#main-range button').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      rangeDays = +btn.dataset.days;
+      renderMain();
+    });
+  });
+  window.addEventListener('resize', function () { mainChart.resize(); });
+
+  // ───────── 国家队持仓占比 (半年报/年报) ─────────
+  var R = D.nt_ratio;
+  if (!R || !R.dates || !R.dates.length) {
+    document.getElementById('ratio-hint').textContent = '暂无报告期数据';
+  } else {
+    var ratioChart = echarts.init(document.getElementById('ratioChart'));
+    var R_COLORS = { '510300': '#1e88e5', '510500': '#43a047', '512100': '#f9a825' };
+    var rSeries = [{
+      name: '全部国家队ETF合计',
+      type: 'line',
+      data: R.total,
+      symbol: 'circle', symbolSize: 6, connectNulls: true,
+      lineStyle: { width: 2.4, color: '#c62828' },
+      itemStyle: { color: '#c62828' }
+    }];
+    Object.keys(D.index_prices).forEach(function (code) {
+      var c = R_COLORS[code] || '#78909c';
+      rSeries.push({
+        name: D.index_prices[code].name,
+        type: 'line',
+        data: R['index'][code] || [],
+        symbol: 'circle', symbolSize: 5, connectNulls: true,
+        lineStyle: { width: 1.6, color: c },
+        itemStyle: { color: c }
+      });
+    });
+    ratioChart.setOption({
+      tooltip: {
+        trigger: 'axis',
+        valueFormatter: function (v) { return v == null ? '—' : v.toFixed(2) + '%'; }
+      },
+      legend: { top: 0, textStyle: { fontSize: 12 } },
+      grid: { left: 54, right: 44, top: 44, bottom: 46 },
+      xAxis: {
+        type: 'category', data: R.dates,
+        boundaryGap: false,                   // 首尾点贴齐绘图区, 点与刻度一一对应
+        axisTick: { alignWithLabel: true },   // 刻度线对齐到数据点(默认对齐区间边界, 会差半个区间)
+        axisLabel: {
+          fontSize: 10, color: '#888',
+          formatter: function (v) { return v.slice(0, 7); },   // 只显示 2012-06
+          hideOverlap: true                                     // 空间不足时自动抽稀
+        },
+        axisLine: { lineStyle: { color: '#ccc' } }
+      },
+      yAxis: {
+        type: 'value', name: '占比(%)', min: 0,
+        nameTextStyle: { fontSize: 11, color: '#666' },
+        axisLabel: { fontSize: 10, color: '#888', formatter: '{value}%' },
+        splitLine: { lineStyle: { color: '#f0f0f0' } }
+      },
+      series: rSeries
+    });
+    window.addEventListener('resize', function () { ratioChart.resize(); });
+    document.getElementById('ratio-hint').textContent =
+      '统计口径：十大持有人中「中央汇金 / 社保 / 证金」等国家队机构合计持有份额 ÷ 该报告期 ETF 总份额；' +
+      '仅能统计到前十大持有人，因此是实际持仓的下界。合计线为沪市全部国家队 ETF 的加权占比（深市缺历史份额，暂不纳入）。';
+  }
+
+  // 表格
+  var rows = D.etfs.map(function (e) {
+    return {
+      code: e.code, name: e.name, market: e.market,
+      latest_share: e.latest_share,
+      c1d: e.chg['1d'], c1w: e.chg['1w'], c1m: e.chg['1m'],
+      c3m: e.chg['3m'], c1y: e.chg['1y'],
+      nt_hold_ratio: e.nt_hold_ratio,
+      nt_hold_change: e.nt_hold_change,
+      nt_is_new: e.nt_is_new,
+      latest_report_date: e.latest_report_date
+    };
+  });
+  var sortKey = 'latest_share', sortDir = -1;
+
+  function cmp(a, b) {
+    var va = a[sortKey], vb = b[sortKey];
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    if (typeof va === 'string') return va.localeCompare(vb) * sortDir;
+    return (va - vb) * sortDir;
+  }
+
+  function renderTable() {
+    rows.sort(cmp);
+    var tbody = document.querySelector('#ntTable tbody');
+    tbody.innerHTML = rows.map(function (r) {
+      var newTag = r.nt_is_new ? '<span class="tag-new">新进</span>' : '';
+      var mktTag = r.market === 'sz' ? '<span class="tag-mkt">深</span>' : '';
+      return '<tr data-code="' + r.code + '">' +
+        '<td class="code">' + r.code + '</td>' +
+        '<td class="name">' + r.name + mktTag + newTag + '</td>' +
+        '<td>' + fmtNum(r.latest_share, 2) + '</td>' +
+        '<td class="' + pctClass(r.c1d) + '">' + fmtPct(r.c1d) + '</td>' +
+        '<td class="' + pctClass(r.c1w) + '">' + fmtPct(r.c1w) + '</td>' +
+        '<td class="' + pctClass(r.c1m) + '">' + fmtPct(r.c1m) + '</td>' +
+        '<td class="' + pctClass(r.c3m) + '">' + fmtPct(r.c3m) + '</td>' +
+        '<td class="' + pctClass(r.c1y) + '">' + fmtPct(r.c1y) + '</td>' +
+        '<td>' + fmtNum(r.nt_hold_ratio, 2) + '%</td>' +
+        '<td class="' + pctClass(r.nt_hold_change) + '">' + fmtPct(r.nt_hold_change) + '</td>' +
+        '<td>' + (r.latest_report_date || '—') + '</td>' +
+        '</tr>';
+    }).join('');
+    tbody.querySelectorAll('tr').forEach(function (tr) {
+      tr.addEventListener('click', function () {
+        location.href = 'etf_nt.html?code=' + tr.dataset.code;
+      });
+    });
+    document.querySelectorAll('#ntTable th').forEach(function (th) {
+      th.textContent = th.textContent.replace(/ [↓↑]$/, '') +
+        (th.dataset.key === sortKey ? (sortDir > 0 ? ' ↑' : ' ↓') : '');
+    });
+  }
+
+  document.querySelectorAll('#ntTable th').forEach(function (th) {
+    th.addEventListener('click', function () {
+      var key = th.dataset.key;
+      if (sortKey === key) sortDir = -sortDir;
+      else { sortKey = key; sortDir = key === 'code' || key === 'name' ? 1 : -1; }
+      renderTable();
+    });
+  });
+  renderTable();
+
+  // ───────── 详情页 ─────────
+  var code = new URLSearchParams(location.search).get('code');
+  if (!code) return;
+  var etf = D.etfs.filter(function (e) { return e.code === code; })[0];
+  if (!etf) return;
+
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('detail').style.display = 'block';
+  document.getElementById('detail-title').textContent = etf.name + ' (' + etf.code + ')';
+  document.getElementById('detail-meta').innerHTML =
+    '最新份额 <b>' + fmtNum(etf.latest_share, 2) + ' 亿份</b>（' + (etf.share_date || '—') + '）｜ ' +
+    '国家队占比 <b>' + fmtNum(etf.nt_hold_ratio, 2) + '%</b>｜ ' +
+    '最新报告期 <b>' + (etf.latest_report_date || '—') + '</b>';
+
+  var detailChart = echarts.init(document.getElementById('detailChart'));
+  var shareMap = {};
+  var sh = etf.shares, pr = etf.prices;
+  D.share_dates.forEach(function (d, i) {
+    var j = i - sh.start;
+    shareMap[d] = (j >= 0 && j < sh.values.length) ? sh.values[j] : null;
+  });
+  var detailDays = 365;
+
+  function renderDetail(days) {
+    var start = Math.max(dateCutoff(D.price_dates, days), pr.start);
+    var pDates = D.price_dates.slice(start);
+    var pClose = pr.values.slice(start - pr.start);
+    var shareSeries = pDates.map(function (d) { return shareMap[d] == null ? null : shareMap[d]; });
+
+    detailChart.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { top: 0, textStyle: { fontSize: 12 } },
+      grid: { left: 58, right: 66, top: 44, bottom: 46 },
+      xAxis: {
+        type: 'category', data: pDates,
+        axisLine: { lineStyle: { color: '#ccc' } },
+        axisLabel: { fontSize: 10, color: '#888' }
+      },
+      yAxis: [{
+        type: 'value', name: '价格(元)', scale: true,
+        nameTextStyle: { fontSize: 11, color: '#666' },
+        axisLabel: { fontSize: 10, color: '#888' },
+        splitLine: { lineStyle: { color: '#f0f0f0' } }
+      }, {
+        type: 'value', name: '份额(亿份)', scale: true,
+        nameTextStyle: { fontSize: 11, color: '#666' },
+        axisLabel: { fontSize: 10, color: '#888' },
+        splitLine: { show: false }
+      }],
+      dataZoom: [{ type: 'inside' }, {
+        type: 'slider', height: 16, bottom: 8,
+        borderColor: 'transparent', fillerColor: 'rgba(40,53,147,0.12)'
+      }],
+      series: [{
+        name: '价格', type: 'line', yAxisIndex: 0, data: pClose,
+        showSymbol: false, lineStyle: { width: 1.6, color: '#1e88e5' },
+        itemStyle: { color: '#1e88e5' }
+      }, {
+        name: '份额', type: 'line', yAxisIndex: 1, data: shareSeries,
+        showSymbol: false, lineStyle: { width: 1.6, color: '#c62828' },
+        itemStyle: { color: '#c62828' }
+      }]
+    }, true);
+  }
+
+  renderDetail(detailDays);
+  document.querySelectorAll('#detail-range button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#detail-range button').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      detailDays = +btn.dataset.days;
+      renderDetail(detailDays);
+    });
+  });
+  window.addEventListener('resize', function () { detailChart.resize(); });
+
+  // 持有人
+  var tbody = document.querySelector('#holderTable tbody');
+  document.getElementById('holder-hint').textContent =
+    '最新期 ' + (etf.latest_report_date || '—') +
+    (etf.prev_report_date ? ' vs 上期 ' + etf.prev_report_date : '（无上期数据）');
+  if (!etf.holders_latest || !etf.holders_latest.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:#999;">暂无持有人数据</td></tr>';
+  } else {
+    tbody.innerHTML = etf.holders_latest.map(function (h, i) {
+      var cls = h.is_nt ? ' class="nt-row"' : '';
+      var tag = h.is_nt ? ' <span class="tag-new" style="background:#d84315;">国家队</span>' : '';
+      var chg = h.chg == null ? (h.prev_amount == null ? '新进' : '—') : fmtPct(h.chg);
+      var chgCls = h.prev_amount == null ? 'flat' : pctClass(h.chg);
+      return '<tr' + cls + '>' +
+        '<td>' + (i + 1) + '</td>' +
+        '<td class="name">' + h.name + tag + '</td>' +
+        '<td>' + fmtNum(h.amount / 1e8, 2) + '</td>' +
+        '<td>' + fmtNum(h.ratio, 2) + '%</td>' +
+        '<td>' + (h.prev_amount == null ? '—' : fmtNum(h.prev_amount / 1e8, 2)) + '</td>' +
+        '<td class="' + chgCls + '">' + chg + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+})();
+</script>
+</body>
+</html>

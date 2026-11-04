@@ -60,6 +60,12 @@ jobs:
       - name: 生成V6基差轮动回测与实时持仓数据
         run: python gen_v6_backtest.py
 
+      # fetch_etf_nt.py：上交所/深交所份额 + 新浪价格/持有人 → data/etf_nt_data.js
+      # 接口对海外IP可能间歇性拦截, 失败时沿用仓库内已有数据, 不阻断部署
+      - name: 更新ETF国家队看板数据
+        continue-on-error: true
+        run: python fetch_etf_nt.py
+
       - name: 提交更新的数据文件（跳过 CI 防循环）
         run: |
           git config user.name "github-actions[bot]"
