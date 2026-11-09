@@ -85,7 +85,7 @@
 
     <div class="panel">
       <div class="panel-head">
-        <h3>国家队 ETF 总份额变化</h3>
+        <h3 id="main-title">国家队 ETF 总份额变化</h3>
         <div class="range-btns" id="main-range">
           <button data-days="30">1月</button>
           <button data-days="90">3月</button>
@@ -100,7 +100,7 @@
 
     <div class="panel">
       <div class="panel-head">
-        <h3>国家队持仓占比（半年报/年报口径）</h3>
+        <h3 id="ratio-title">国家队持仓占比（半年报/年报口径）</h3>
         <span class="hint">占比 = 国家队持有份额 ÷ 该报告期 ETF 总份额</span>
       </div>
       <div id="ratioChart" style="height:330px;"></div>
@@ -147,7 +147,7 @@
 
     <div class="panel">
       <div class="panel-head">
-        <h3>价格与份额</h3>
+        <h3 id="detail-title">价格与份额</h3>
         <div class="range-btns" id="detail-range">
           <button data-days="30">1月</button>
           <button data-days="90">3月</button>
@@ -189,9 +189,17 @@
   <p>份额数据 T+1；十大持有人仅在半年报/年报披露。仅供参考，不构成投资建议。</p>
 </footer>
 
-<script src="data/etf_nt_data.js"></script>
 <script>
+// 数据每日更新, 加时间戳避免浏览器/Pages CDN 命中旧缓存
 (function () {
+  var s = document.createElement('script');
+  s.src = 'data/etf_nt_data.js?t=' + Math.floor(Date.now() / 300000);
+  s.onload = function () { document.dispatchEvent(new Event('etf-nt-ready')); };
+  document.head.appendChild(s);
+})();
+</script>
+<script>
+function initEtfNt() {
   var D = window.ETF_NT_DATA;
   if (!D || !D.etfs || !D.etfs.length) {
     document.getElementById('meta-line').textContent = '数据尚未生成，请先运行 python fetch_etf_nt.py --init';
@@ -238,6 +246,8 @@
   var rangeDays = 365;
 
   function renderMain() {
+    document.getElementById('main-title').textContent =
+      '国家队 ETF 总份额变化（' + D.share_dates[0] + ' ~ ' + D.latest_share_date + '）';
     var idx = dateCutoff(D.share_dates, rangeDays);
     // 尾部可能只有深市快照(沪市尚未披露), 主图裁到总份额最后一个有效点
     var end = D.share_total.length - 1;
@@ -324,6 +334,8 @@
     document.getElementById('ratio-hint').textContent = '暂无报告期数据';
   } else {
     var ratioChart = echarts.init(document.getElementById('ratioChart'));
+    document.getElementById('ratio-title').textContent =
+      '国家队持仓占比（半年报/年报口径 · ' + R.dates[0] + ' ~ ' + R.dates[R.dates.length - 1] + '）';
     var R_COLORS = { '510300': '#1e88e5', '510500': '#43a047', '512100': '#f9a825' };
     var rSeries = [{
       name: '全部国家队ETF合计',
@@ -465,6 +477,8 @@
   var detailDays = 365;
 
   function renderDetail(days) {
+    document.getElementById('detail-title').textContent =
+      '价格与份额（' + D.price_dates[pr.start] + ' ~ ' + D.price_dates[D.price_dates.length - 1] + '）';
     var start = Math.max(dateCutoff(D.price_dates, days), pr.start);
     var pDates = D.price_dates.slice(start);
     var pClose = pr.values.slice(start - pr.start);
@@ -540,7 +554,14 @@
         '</tr>';
     }).join('');
   }
-})();
+}
+
+// 数据脚本异步加载完成后执行初始化
+if (window.ETF_NT_DATA) {
+  initEtfNt();
+} else {
+  document.addEventListener('etf-nt-ready', initEtfNt);
+}
 </script>
 </body>
 </html>

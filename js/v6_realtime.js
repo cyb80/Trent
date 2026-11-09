@@ -215,6 +215,15 @@
       return (v / peak - 1) * 100;
     });
     var k = r.kpi;
+    // 保留用户当前的缩放区间, 避免定时刷新后重置
+    var pz = ((chartNav.getOption() || {}).dataZoom || [])[0];
+    var zStart = pz ? pz.start : 0, zEnd = pz ? pz.end : 100;
+    // 标题带上数据起止区间
+    var ti = chartNav.getDom().parentNode.querySelector("h3");
+    if (ti) {
+      ti.dataset.base = ti.dataset.base || ti.textContent;
+      ti.textContent = ti.dataset.base + "（" + dates[0] + " ~ " + dates[dates.length - 1] + "）";
+    }
     chartNav.setOption({
       animation: false,
       tooltip: {
@@ -230,14 +239,18 @@
       },
       legend: { data: ["策略净值", "回撤"], top: 4, textStyle: { fontSize: 11 } },
       grid: [
-        { left: 62, right: 30, top: 40, height: "52%" },
-        { left: 62, right: 30, top: "72%", height: "20%" }
+        { left: 62, right: 30, top: 40, height: "48%" },
+        { left: 62, right: 30, top: "67%", height: "17%" }
+      ],
+      dataZoom: [
+        { type: "inside", start: zStart, end: zEnd },
+        { type: "slider", height: 16, bottom: 8, start: zStart, end: zEnd }
       ],
       xAxis: [
         { type: "category", gridIndex: 0, data: dates, axisLabel: { show: false }, axisTick: { show: false } },
         {
           type: "category", gridIndex: 1, data: dates,
-          axisLabel: { formatter: function (v) { return v.slice(0, 7); }, fontSize: 10, interval: Math.floor(dates.length / 12) }
+          axisLabel: { formatter: function (v) { return v.slice(0, 7); }, fontSize: 10, hideOverlap: true }
         }
       ],
       yAxis: [

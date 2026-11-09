@@ -101,12 +101,17 @@ def fetch_sse_etfs(date_str):
            f"&STAT_DATE={d}")
     headers = {"Referer": "https://www.sse.com.cn/"}
     text = None
-    try:
-        r = SESSION.get(url, headers=headers, timeout=60, verify=False)
-        if r.status_code == 200:
-            text = r.text
-    except Exception as e:
-        print(f"  [份额] requests 失败: {type(e).__name__}: {e}")
+    # 偶发超时/返回空正文会导致当天份额漏采, 失败时重试一次
+    for attempt in range(2):
+        try:
+            r = SESSION.get(url, headers=headers, timeout=60, verify=False)
+            if r.status_code == 200 and r.text:
+                text = r.text
+                break
+        except Exception as e:
+            if attempt == 1:
+                print(f"  [份额] requests 失败: {type(e).__name__}: {e}")
+        time.sleep(1.5)
     if not text:
         # 云服务器/海外 IP 有时需要 curl 通道
         try:
@@ -411,7 +416,7 @@ def collect_shares_daily(universe):
     codes = {u["code"] for u in universe if is_sh(u["code"])}
     last = df["date"].max() if not df.empty else None
     today = now_bjt().date()
-    start = (pd.to_datetime(last).date() + timedelta(days=1)) if last else (today - timedelta(days=10))
+    start = (pd.to_datetime(last).date() - timedelta(days=2)) if last else (today - timedelta(days=10))
     rows = []
     d = start
     while d <= today:

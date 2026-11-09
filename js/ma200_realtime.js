@@ -471,6 +471,10 @@
       " ~ " +
       back.eval_end +
       "）";
+    // 保留用户当前的缩放区间, 避免定时刷新后重置
+    var pz = ((chart.getOption() || {}).dataZoom || [])[0];
+    var zStart = pz ? pz.start : 0,
+      zEnd = pz ? pz.end : 100;
     chart.setOption({
       tooltip: {
         trigger: "axis",
@@ -487,8 +491,12 @@
         textStyle: { fontSize: 10 },
       },
       grid: [
-        { left: 60, right: 55, top: 55, height: "55%" },
-        { left: 60, right: 55, top: "75%", height: "19%" },
+        { left: 60, right: 55, top: 55, height: "48%" },
+        { left: 60, right: 55, top: "67%", height: "17%" },
+      ],
+      dataZoom: [
+        { type: "inside", start: zStart, end: zEnd },
+        { type: "slider", height: 16, bottom: 8, start: zStart, end: zEnd },
       ],
       xAxis: [
         {
@@ -509,7 +517,7 @@
               return v.slice(0, 7);
             },
             fontSize: 10,
-            interval: Math.floor(dates.length / 12),
+            hideOverlap: true,
           },
         },
       ],
@@ -570,7 +578,7 @@
             data: [
               {
                 coord: [dates[base], back.strat_nav[base]],
-                value: (back.strat_nav[base] / back.bench_nav[base]).toFixed(2),
+                value: back.strat_nav[base].toFixed(2),
                 itemStyle: { color: "#1a237e" },
                 label: { color: "#fff", fontSize: 10 },
               },
@@ -587,6 +595,18 @@
           lineStyle: { color: "#90a4ae", width: 1.5, type: "dashed" },
           itemStyle: { color: "#90a4ae" },
           symbol: "none",
+          markPoint: {
+            symbol: "pin",
+            symbolSize: 46,
+            data: [
+              {
+                coord: [dates[base], back.bench_nav[base]],
+                value: back.bench_nav[base].toFixed(2),
+                itemStyle: { color: "#90a4ae" },
+                label: { color: "#fff", fontSize: 10 },
+              },
+            ],
+          },
         },
         {
           name: "策略/基准相对净值",
@@ -598,6 +618,18 @@
           lineStyle: { color: "#2e7d32", width: 1.5 },
           itemStyle: { color: "#2e7d32" },
           symbol: "none",
+          markPoint: {
+            symbol: "pin",
+            symbolSize: 46,
+            data: [
+              {
+                coord: [dates[base], ratio[base]],
+                value: ratio[base].toFixed(2),
+                itemStyle: { color: "#2e7d32" },
+                label: { color: "#fff", fontSize: 10 },
+              },
+            ],
+          },
         },
         {
           name: "历史总敞口",

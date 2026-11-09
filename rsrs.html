@@ -123,6 +123,10 @@
   function renderChart(containerId, latestId, perfId, data, name) {
     var dom = document.getElementById(containerId);
     var chart = echarts.init(dom);
+    var h3 = dom.parentNode.querySelector('h3');
+    if (h3) {
+      h3.textContent = name + '（' + data.dates[0] + ' ~ ' + data.dates[data.dates.length - 1] + '）';
+    }
     var suffix = containerId.replace('chart-', '');
 
     var legendData = ['买入持有'].concat(STRAT_NAMES);
@@ -225,8 +229,12 @@
         textStyle: { fontSize: 11 }
       },
       grid: [
-        { left: 60, right: 30, top: 50, height: '55%' },
-        { left: 60, right: 30, top: '72%', height: '22%' }
+        { left: 60, right: 30, top: 50, height: '48%' },
+        { left: 60, right: 30, top: '66%', height: '20%' }
+      ],
+      dataZoom: [
+        { type: 'inside' },
+        { type: 'slider', height: 16, bottom: 8 }
       ],
       xAxis: [
         {
@@ -236,7 +244,7 @@
           axisLabel: {
             formatter: function(v) { return v.slice(0, 7); },
             fontSize: 10,
-            interval: Math.floor(data.dates.length / 12)
+            hideOverlap: true
           }
         },
         {
