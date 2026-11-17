@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>历史上的今天 - 量化择时</title>
+<link rel="stylesheet" href="../css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+.ctl-row {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  background: #fff; border-radius: 12px; padding: 12px 18px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06); margin-bottom: 18px;
+}
+.ctl-row .label { font-size: 0.82rem; color: #999; margin-right: 4px; }
+.pill {
+  border: 1px solid #dde1ea; background: #fff; color: #555; cursor: pointer;
+  border-radius: 16px; padding: 4px 14px; font-size: 0.85rem; transition: all .15s;
+}
+.pill:hover { border-color: #3949ab; color: #3949ab; }
+.pill.on { background: #1a237e; border-color: #1a237e; color: #fff; }
+.pill .sub { font-size: 0.7rem; opacity: .7; margin-left: 3px; }
+.status-bar {
+  display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+  font-size: 0.82rem; color: #777; padding: 0 4px 14px;
+}
+.status-bar .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #43a047; margin-right: 5px; }
+.status-bar .dot.live { background: #e53935; animation: blink 1.2s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+.tag-live { background: #ffebee; color: #c62828; border-radius: 8px; padding: 1px 8px; font-size: 0.72rem; }
+
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; padding-bottom: 22px; }
+.kpi {
+  background: #fff; border-radius: 12px; padding: 14px 16px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06); border-left: 4px solid #cfd8e3;
+}
+.kpi.up { border-left-color: #e53935; }
+.kpi.down { border-left-color: #43a047; }
+.kpi .h { font-size: 0.78rem; color: #999; display: flex; justify-content: space-between; }
+.kpi .p { font-size: 1.75rem; font-weight: 700; line-height: 1.15; margin: 2px 0; }
+.kpi .p.up { color: #e53935; } .kpi .p.down { color: #43a047; } .kpi .p.flat { color: #607d8b; }
+.kpi .ci { font-size: 0.72rem; color: #aaa; }
+.kpi .row2 { font-size: 0.78rem; color: #666; margin-top: 6px; display: flex; justify-content: space-between; }
+.kpi .row2 span b { font-weight: 600; }
+.kpi .bar { height: 5px; border-radius: 3px; background: #eef1f5; margin-top: 8px; overflow: hidden; }
+.kpi .bar i { display: block; height: 100%; background: linear-gradient(90deg,#43a047,#e53935); }
+
+.chart-card { margin-bottom: 22px; }
+.chart-card h3 { display: flex; justify-content: space-between; align-items: baseline; }
+.chart-card h3 small { font-weight: 400; color: #aaa; font-size: 0.75rem; }
+.chart-container.sm { height: 320px; }
+.chart-container.md { height: 420px; }
+
+table.dt { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+table.dt th, table.dt td { padding: 6px 8px; border-bottom: 1px solid #eef0f4; text-align: center; white-space: nowrap; }
+table.dt th { background: #f7f8fb; color: #555; font-weight: 600; }
+table.dt td.l, table.dt th.l { text-align: left; }
+table.dt tr:hover td { background: #fafbfd; }
+.pos { color: #e53935; font-weight: 600; }
+.neg { color: #43a047; font-weight: 600; }
+.muted { color: #aaa; }
+.spark { width: 110px; height: 26px; display: block; }
+
+.note { font-size: 0.8rem; color: #888; line-height: 1.8; padding: 4px 4px 0; }
+.note b { color: #555; }
+details.method { background: #fff; border-radius: 12px; padding: 14px 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); margin-bottom: 22px; }
+details.method summary { cursor: pointer; font-size: 0.95rem; color: #1a237e; font-weight: 600; }
+details.method .body { font-size: 0.82rem; color: #666; line-height: 1.9; padding-top: 10px; }
+details.method code { background: #f2f4f8; padding: 1px 5px; border-radius: 4px; color: #3949ab; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 900px) {
+  .two-col { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  header .container { flex-direction: column; gap: 10px; }
+  header nav a { margin: 0 8px; font-size: 0.82rem; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <h1><a href="../index.html">量化择时</a></h1>
+    <nav>
+      <a href="../index.html">首页</a>
+      <a href="../stock_bond.html">股债性价比</a>
+      <a href="../graham.html">格雷厄姆指数</a>
+      <a href="../rsrs.html">RSRS择时</a>
+      <a href="../earn_discount.html">吃贴水</a>
+      <a href="../v6_basis.html">基差轮动</a>
+      <a href="../etf_nt.html">国家队ETF</a>
+      <a href="analog.html" class="active">历史上的今天</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-title">
+    <h2>历史上的今天 · 未来涨跌的概率与空间</h2>
+    <p>把今天的市场状态拆成 8 个维度，在历史中找出最相似的交易日，用它们之后的真实走势构造未来的概率分布</p>
+  </div>
+
+  <div class="status-bar" id="status-bar"></div>
+
+  <div class="ctl-row">
+    <span class="label">标的</span>
+    <span id="idx-tabs"></span>
+    <span class="label" style="margin-left:18px;">期限</span>
+    <span id="hz-tabs"></span>
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <div class="chart-card">
+    <h3><span id="fan-title">未来路径概率锥</span><small>浅色为 12 条最相似历史路径</small></h3>
+    <div id="chart-fan" class="chart-container md"></div>
+    <div class="note" id="fan-note"></div>
+  </div>
+
+  <div class="chart-card">
+    <h3><span id="hist-title">末段收益的条件经验分布</span><small>按相似度与时近加权</small></h3>
+    <div id="chart-hist" class="chart-container sm"></div>
+    <div class="note" id="hist-note"></div>
+  </div>
+
+  <div class="chart-card">
+    <h3><span>最相似的历史交易日</span><small>权重 = 距离核 × 时间衰减</small></h3>
+    <div id="neighbor-table" style="overflow-x:auto;"></div>
+    <div class="note">距离越小越像；「此后收益」为该日之后 N 个交易日的实际涨跌幅（已按当时波动率归一）。迷你曲线为该日之后的累计走势。</div>
+  </div>
+
+  <div class="two-col">
+    <div class="chart-card">
+      <h3><span>方法对照</span><small>相似日 / 蒙特卡洛 / 期权隐含</small></h3>
+      <div id="cross-table" style="overflow-x:auto;"></div>
+      <div class="note" id="cross-note"></div>
+    </div>
+    <div class="chart-card">
+      <h3><span>当前状态分解</span><small>块内为滚动 z 值（-1 ~ +1）</small></h3>
+      <div id="block-table" style="overflow-x:auto;"></div>
+      <div class="note" id="block-note"></div>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <h3><span>历史回测：概率校准</span><small>2016 年起每 5 个交易日滚动一次</small></h3>
+    <div id="metrics-table" style="overflow-x:auto;margin-bottom:12px;"></div>
+    <div class="two-col">
+      <div>
+        <div id="chart-calib" class="chart-container sm"></div>
+        <div class="note">横轴：模型给出的上涨概率；纵轴：实际上涨频率。点越贴近虚线，概率越可信。</div>
+      </div>
+      <div>
+        <div id="chart-bt" class="chart-container sm"></div>
+        <div class="note">模型概率随时间变化（该期限）；灰点为实际结果（1=涨，0=跌）。</div>
+      </div>
+    </div>
+  </div>
+
+  <details class="method">
+    <summary>推算方法说明</summary>
+    <div class="body" id="method-body"></div>
+  </details>
+
+  <div id="data-source" class="data-source"></div>
+</main>
+
+<footer>
+  <p>相似日经验分布 + EWMA 残差自举蒙特卡洛交叉验证 | 行情：指数行情序列.xlsx + 腾讯日K补洞 | 数据每日 14:30 与收盘后各更新一次</p>
+  <p>历史相似不等于未来重演，概率与区间仅作参考，不构成投资建议。</p>
+</footer>
+
+<script src="analog_data.js"></script>
+<script src="analog_snapshots.js" onerror="void(0)"></script>
+<script src="analog.js"></script>
+</body>
+</html>

@@ -8,12 +8,21 @@ on:
     - cron: "30 12 * * *"
     # 每天 UTC 00:00 运行（北京时间 08:00）— 早间补漏, 确保开盘前页面已是最新收盘数据
     - cron: "0 0 * * *"
+    # 工作日 UTC 06:25（北京时间 14:25）— "历史上的今天" 盘中快照, 抢在 15:00 收盘前完成
+    - cron: "25 6 * * 1-5"
   workflow_dispatch: # 支持手动触发
   push:
     branches: [main]
 
+# Pages 只能串行部署, 两个 job 共用同一 concurrency group 避免互相取消
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
+    # 14:25 那次只跑盘中快照 job, 全量收盘流程跳过
+    if: github.event.schedule != '25 6 * * 1-5'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -32,7 +41,7 @@ jobs:
       - name: 安装依赖
         run: |
           pip install --upgrade pip
-          pip install pandas numpy akshare
+          pip install pandas numpy akshare requests
 
       # fetch_rsrs.py 先运行：更新xlsx（OHLCV + PE_TTM + 国债）+ 输出RSRS回测数据
       - name: 更新xlsx并生成RSRS数据
@@ -66,12 +75,32 @@ jobs:
         continue-on-error: true
         run: python fetch_etf_nt.py
 
+      # fetch_sentiment.py：akshare 两融余额/融资净买入 + 50ETF 波指 → data/情绪数据序列.xlsx
+      # 供 "历史上的今天" 的情绪维度使用; 失败时沿用旧 sheet, 不阻断部署
+      - name: 更新两融与波指情绪数据
+        continue-on-error: true
+        run: python fetch_sentiment.py
+
+      # 隐含波动率/fetch_iv.py：中金所 MO 期权结算价 → Black-76 反算中证1000 IV（增量）。
+      # 首次运行回填 2022-07 起全部月份，之后只重算最近 3 个月；失败不阻断部署。
+      - name: 反算中证1000隐含波动率
+        continue-on-error: true
+        run: python 隐含波动率/fetch_iv.py
+
+      # 历史上的今天/analog_core.py：8 维状态相似日匹配 → 各期限上涨概率与涨跌空间。
+      # 依赖前面的 xlsx / v6_futures / iv 更新; 失败时沿用仓库内已有 analog_data.js。
+      - name: 生成相似日概率与空间推算
+        continue-on-error: true
+        run: python 历史上的今天/analog_core.py
+
       - name: 提交更新的数据文件（跳过 CI 防循环）
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/
           git add fetch_rsrs.py
+          git add "隐含波动率/iv_history.csv"
+          git add "历史上的今天/"
           git diff --cached --quiet || git commit -m "chore: 每日数据更新 $(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M') [skip ci]"
           git push
         env:
@@ -91,3 +120,52 @@ jobs:
       # 但数据提交/部署已在前面的步骤完成, 不影响线上页面
       - name: 数据源状态检查
         run: python -c "import json,sys; s=json.load(open('data/fetch_status.json',encoding='utf-8')); print(s.get('detail','数据源正常')); sys.exit(0 if s.get('ok') else 1)"
+
+  # ------------------------------------------------------------------
+  # 盘中快照 job: 北京时间 14:25 触发, 用实时价重算"历史上的今天"的概率与空间
+  # 只写 历史上的今天/analog_snapshots.js, 不碰训练样本, 当天多次运行只保留最后一次
+  # ------------------------------------------------------------------
+  snapshot-1430:
+    if: github.event.schedule == '25 6 * * 1-5'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip
+          pip install pandas numpy requests
+
+      # 东方财富实时行情为主, 腾讯兜底; 全部失败时保持原有快照不变
+      - name: 生成 14:30 盘中快照
+        continue-on-error: true
+        run: python 历史上的今天/snapshot_1430.py
+
+      - name: 提交快照文件
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "历史上的今天/analog_snapshots.js"
+          git diff --cached --quiet || git commit -m "chore: 14:30 相似日快照 $(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M') [skip ci]"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: 部署到 GitHub Pages
+        uses: actions/deploy-pages@v4
