@@ -142,10 +142,11 @@ jobs:
         with:
           python-version: "3.13"
 
+      # openpyxl 必需: 快照要读取 data/*.xlsx, 缺少时 pandas 会直接抛 ImportError
       - name: 安装依赖
         run: |
           pip install --upgrade pip
-          pip install pandas numpy requests
+          pip install pandas numpy requests openpyxl
 
       # 东方财富实时行情为主, 腾讯兜底; 全部失败时保持原有快照不变
       - name: 生成 14:30 盘中快照

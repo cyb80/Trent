@@ -283,6 +283,7 @@ def load_margin():
     else:
         d['net20'] = np.nan
     d = d.dropna(subset=['date']).sort_values('date')
+    d = d.drop_duplicates(subset=['date'], keep='last')
     return d.set_index('date')
 
 
@@ -300,6 +301,8 @@ def load_qvix():
         'date': pd.to_datetime(x[dc], errors='coerce'),
         'qvix': pd.to_numeric(x[vc], errors='coerce'),
     }).dropna(subset=['date']).sort_values('date')
+    # 数据源偶发同一天重复行（akshare 抓取拼接时会出现），去重后再建索引
+    d = d.drop_duplicates(subset=['date'], keep='last')
     return d.set_index('date')['qvix']
 
 
@@ -368,6 +371,7 @@ def _lagged_daily(mser, dates, win=M_WIN, lag_days=45, max_ffill=75, min_periods
 def _daily_join(ser, dates):
     """日频源序列 → 按交易日对齐，不填充（数据结束后即 NaN）。"""
     dd = pd.DatetimeIndex(pd.to_datetime(dates))
+    ser = ser[~ser.index.duplicated(keep='last')]
     return pd.Series(np.asarray(ser.reindex(ser.index.union(dd)).reindex(dd), dtype=float), index=dd)
 
 
@@ -375,6 +379,7 @@ def _daily_ffill(ser, dates, max_days=5):
     """日频源序列 → 按交易日对齐，允许最多 max_days 个自然日的前值填充。"""
     dd = pd.DatetimeIndex(pd.to_datetime(dates))
     s = ser.dropna()
+    s = s[~s.index.duplicated(keep='last')]
     if not len(s):
         return pd.Series(np.nan, index=dd)
     idx = s.index.union(dd)
