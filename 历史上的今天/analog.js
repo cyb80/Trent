@@ -156,12 +156,13 @@
       { name: '25~75%', type: 'line', data: b2575, stack: 'b2', symbol: 'none', lineStyle: { opacity: 0 }, areaStyle: { color: '#5c6bc0', opacity: 0.18 }, silent: true },
       { name: '中位', type: 'line', data: q50, symbol: 'none', lineStyle: { color: '#1a237e', width: 2 } }
     ];
-    var nbs = it.neighbors || [];
+    var nbs = (it.disp && it.disp.length) ? it.disp : (it.neighbors || []);
+    var op = nbs.length > 30 ? 0.16 : (nbs.length > 12 ? 0.24 : 0.35);
     nbs.forEach(function (nb, k) {
       series.push({
         name: '相似' + (k + 1), type: 'line', symbol: 'none',
         data: [0].concat(nb.path.slice(1).map(function (v) { return v; })),
-        lineStyle: { color: '#90a4ae', width: 0.8, opacity: 0.35 },
+        lineStyle: { color: '#90a4ae', width: 0.7, opacity: op },
         emphasis: { disabled: true }, silent: true, z: 1
       });
     });
@@ -200,8 +201,9 @@
     }, true);
     chart.resize();
     document.getElementById('fan-note').innerHTML =
-      '阴影为中位数两侧的 25~75% 与 10~90% 分位区间；灰线是 12 个最相似历史日之后的真实路径。' +
-      '波动率已按今日 20 日已实现波动率对各历史路径做缩放（限制在 0.6~1.6 倍）。';
+      '阴影为中位数两侧的 25~75% 与 10~90% 分位区间；灰线为 ' + nbs.length +
+      ' 条历史相似路径（两两间隔 ≥20 个交易日，仅用于展示分布形态，不参与概率与分位计算）。' +
+      '波动率已按今日 20 日已实现波动率对各历史路径做缩放（限制在 0.35~2.5 倍）。';
   }
 
   // ---------------------------------------------------------------- 收益分布
@@ -497,6 +499,8 @@
       '实测 200 个邻居分布在二十余年历史中（约 192 个落在互不重叠的 20 日区间），只是权重最高的一批多来自最近两三个月——' +
       '这正是「行情同源、状态延续」的信息：强行剔除近 250 日或按 20 日强制去重后，样本外 Brier 反而变差（沪深300 10 日 0.247→0.268）。' +
       '重叠样本带来的「独立信息少于样本数」问题，改由收缩强度（按 h 折算独立样本）与 90% 置信区间体现。<br/>' +
+      '<b>1.3 关于图上的灰线</b>：示例路径改为从更大的候选池（按距离取前 1000）里挑选，规则是距离优先、两两间隔 ≥20 个交易日，最多 50 条。' +
+      '它只改变「看得见的形态」——概率、分位、赔率、MFE/MAE 仍全部由 Top200 加权邻居计算，数值不受影响。<br/>' +
       '<b>2. 相似度</b>：每个块先按自身尺度归一，再块内取特征差的均方平均，最后按块权重加权，得到「今天」与历史每一天的距离。<br/>' +
       '<b>3. 邻居</b>：只在 <code>s ≤ t - max(25, h)</code> 的历史日中挑选最近的 <code>' + D.method.topk +
       '</code> 个，权重 = 高斯核（尺度取最近邻距离中位数）× 时间衰减（半衰期 ' + D.method.decay_halflife +

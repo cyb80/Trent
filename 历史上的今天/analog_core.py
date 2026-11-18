@@ -40,6 +40,9 @@ Z_WIN = 750          # 日频特征滚动标准化窗口
 M_WIN = 60           # 月频特征滚动标准化窗口
 CLIP = 3.0           # z 截断
 TOPK = 200           # 邻居数量
+DISPLAY_K = 50       # 图上示例路径条数（仅展示，不参与概率/分位计算）
+DISPLAY_POOL = 1000  # 示例路径的候选池（按距离排序取前若干个）
+DISPLAY_GAP = 20     # 示例路径两两之间至少间隔的交易日数
 MIN_HIST = 500       # 至少多少根K线后才开始匹配
 DECAY_HALFLIFE = 2000  # 时间衰减半衰期（交易日），越近的历史权重越高
 SHRINK_K = 30        # 向无条件基准概率收缩的强度
@@ -666,6 +669,27 @@ def _fit_weights(dist, t, h, close_len):
     return sel, ds, w, n_eff
 
 
+def _display_idx(dist, t, h, n):
+    """展示用示例路径：在更大的候选池里按距离排序，贪心保留两两间隔>=DISPLAY_GAP 的日期。
+
+    只影响图上画哪几条灰线；概率、分位、赔率等仍只用 TopK 加权邻居。
+    """
+    cand = np.arange(n)
+    ok = (cand <= t - max(25, h)) & np.isfinite(dist) & (dist > -1)
+    cand = cand[ok]
+    if not len(cand):
+        return np.array([], dtype=int)
+    d = dist[cand]
+    cand = cand[np.argsort(d)][:min(DISPLAY_POOL, len(cand))]
+    keep = []
+    for s in cand:
+        if all(abs(int(s) - int(k)) >= DISPLAY_GAP for k in keep):
+            keep.append(int(s))
+            if len(keep) >= DISPLAY_K:
+                break
+    return np.array(keep, dtype=int)
+
+
 def _mc_forward(logret, h, n_sim=3000, lam=0.94, seed=20260101):
     """EWMA 标准化残差自举蒙特卡洛（零漂移）。"""
     r = np.asarray(logret, dtype=float)
@@ -808,6 +832,11 @@ def analyze(feat, mats, t, horizons=HORIZONS, detail=False, iv_series=None,
                 'ret': _r(ret[i]),
                 'path': [_r(close[min(sel[i] + j, n - 1)] / close[sel[i]] - 1.0) for j in range(0, min(h, 120) + 1)],
             } for i in nb]
+            # 图上画的灰线：从更大候选池里挑时间分散的 DISPLAY_K 条（不影响上面的数值）
+            item['disp'] = [{
+                'date': dates[s].strftime('%Y-%m-%d'),
+                'path': [_r(close[min(s + j, n - 1)] / close[s] - 1.0) for j in range(0, min(h, 120) + 1)],
+            } for s in _display_idx(dist, t, h, n)]
 
         cross = {}
         if do_mc:
