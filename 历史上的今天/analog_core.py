@@ -972,6 +972,11 @@ def run(verbose=True):
             'close': _r(feat['close'][t], 2),
             'first_date': feat['dates'][0],
             'n_days': len(feat['dates']),
+            # 历史收盘价：用于在价格曲线上标注相似日位置（仅展示）
+            'price': {
+                'dates': list(feat['dates']),
+                'close': [_r(x, 2) for x in np.asarray(feat['close'], dtype=float)],
+            },
             'blocks': _block_snapshot(feat, t),
             'block_last': feat['block_last'],
             'horizons': pred,

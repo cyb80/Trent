@@ -206,6 +206,99 @@
       '波动率已按今日 20 日已实现波动率对各历史路径做缩放（限制在 0.35~2.5 倍）。';
   }
 
+  // ---------------------------------------------------------------- 相似日位置
+  function renderMap() {
+    var name = state.idx, h = state.hz;
+    var v = byIdx(name), it = pick(name, h);
+    var dom = document.getElementById('chart-map');
+    document.getElementById('map-title').textContent = name + ' · 历史收盘价与相似日位置';
+    var px = v.price;
+    if (!px || !px.dates || !px.dates.length) {
+      dom.innerHTML = '<div class="error">该标的暂无收盘价序列（请重新生成 analog_data.js）</div>';
+      return;
+    }
+    var dates = px.dates.slice(), close = px.close.slice();
+    var lv = liveFor(name);
+    if (lv && lv.date > dates[dates.length - 1]) { dates.push(lv.date); close.push(lv.close); }
+
+    var pos = {};
+    for (var i = 0; i < dates.length; i++) pos[dates[i]] = i;
+    var disp = (it && it.disp && it.disp.length) ? it.disp : ((it && it.neighbors) || []);
+    var top = (it && it.neighbors) || [];
+    var pDisp = [], pTop = [];
+    disp.forEach(function (x) {
+      if (pos[x.date] === undefined) return;
+      var pth = x.path || [];
+      pDisp.push({
+        value: [pos[x.date], close[pos[x.date]]], date: x.date,
+        ret: pth.length ? pth[pth.length - 1] : null
+      });
+    });
+    top.forEach(function (x) {
+      if (pos[x.date] === undefined) return;
+      pTop.push({ value: [pos[x.date], close[pos[x.date]]], date: x.date, w: x.w, ret: x.ret });
+    });
+
+    var chart = charts.map || (charts.map = echarts.init(dom));
+    chart.setOption({
+      animation: false,
+      tooltip: {
+        trigger: 'item',
+        formatter: function (p) {
+          var d = p.data;
+          if (!d || d.date === undefined) return '';
+          var s = '<b>' + d.date + '</b><br/>收盘 ' + d.value[1];
+          if (d.w !== undefined) s += '<br/>权重 ' + (d.w * 100).toFixed(1) + '%';
+          if (d.ret !== null && d.ret !== undefined) s += '<br/>此后 ' + h + ' 日 ' + (d.ret >= 0 ? '+' : '') + (d.ret * 100).toFixed(1) + '%';
+          return s;
+        }
+      },
+      grid: { left: 64, right: 24, top: 18, bottom: 58 },
+      dataZoom: [
+        { type: 'inside', xAxisIndex: 0 },
+        { type: 'slider', xAxisIndex: 0, height: 16, bottom: 10 }
+      ],
+      xAxis: {
+        type: 'category', data: dates, boundaryGap: false,
+        axisLabel: { fontSize: 9, hideOverlap: true, formatter: function (v2) { return v2.slice(2, 7); } },
+        axisTick: { show: false }
+      },
+      yAxis: {
+        type: 'value', scale: true, name: '收盘', nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0f2f5' } }
+      },
+      series: [
+        {
+          name: '收盘价', type: 'line', data: close, symbol: 'none',
+          lineStyle: { color: '#8b98a8', width: 1 }, sampling: 'lttb', z: 1,
+          markLine: {
+            symbol: 'none', silent: true, label: { show: false },
+            lineStyle: { color: '#e53935', type: 'dashed', width: 1 },
+            data: [{ xAxis: dates.length - 1 }]
+          }
+        },
+        {
+          name: '示例路径起点', type: 'scatter', data: pDisp,
+          symbolSize: 6, z: 3,
+          itemStyle: { color: '#4c8dff', opacity: 0.75 }
+        },
+        {
+          name: '权重最高的相似日', type: 'scatter', data: pTop,
+          symbolSize: 9, z: 4,
+          itemStyle: { color: '#ff8f00', borderColor: '#fff', borderWidth: 0.8 }
+        }
+      ]
+    }, true);
+    chart.resize();
+
+    document.getElementById('map-note').innerHTML =
+      '灰线为历史收盘价，红虚线为最新交易日；<b>' + pDisp.length + '</b> 个蓝点是概率锥里 ' + disp.length +
+      ' 条示例路径的起点（两两间隔 ≥20 个交易日），<b>' + pTop.length +
+      '</b> 个橙点是权重最高的相似日（距离核 × 时间衰减）。' +
+      '位置只是“日期落点”，是否相似由 8 维状态距离决定——同一价位的两次行情可能状态完全不同。<br/>' +
+      '拖动下方滑块可缩放时间范围。';
+  }
+
   // ---------------------------------------------------------------- 收益分布
   function renderHist() {
     var name = state.idx, h = state.hz;
@@ -521,6 +614,7 @@
     renderTabs();
     renderKpi();
     renderFan();
+    renderMap();
     renderHist();
     renderNeighbors();
     renderCross();

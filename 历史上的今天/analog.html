@@ -117,6 +117,12 @@ details.method code { background: #f2f4f8; padding: 1px 5px; border-radius: 4px;
   </div>
 
   <div class="chart-card">
+    <h3><span id="map-title">历史收盘价与相似日位置</span><small>蓝点=示例路径起点，橙点=权重最高的相似日</small></h3>
+    <div id="chart-map" class="chart-container sm"></div>
+    <div class="note" id="map-note"></div>
+  </div>
+
+  <div class="chart-card">
     <h3><span id="hist-title">末段收益的条件经验分布</span><small>按相似度与时近加权</small></h3>
     <div id="chart-hist" class="chart-container sm"></div>
     <div class="note" id="hist-note"></div>
