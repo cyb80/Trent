@@ -36,6 +36,22 @@
   var LIVE = !!(SNAP && SNAP.indices && SNAP.trade_date > DATA_DATE);
 
   function byIdx(name) { return D.indices[name] || D.indices['沪深300']; }
+
+  // 每张图上统一标注数据截止日
+  function cutoffText() {
+    var nm = (typeof state !== 'undefined' && state.idx) ? state.idx : '沪深300';
+    var v = byIdx(nm);
+    var lv = liveFor(nm);
+    var d = (lv && lv.date) ? lv.date : (v.date || DATA_DATE);
+    return '数据截止 ' + d + (LIVE ? ' · 盘中' : '');
+  }
+  function cutoffGraphic() {
+    return [{
+      id: 'cutoff', type: 'text', right: 14, top: 1, silent: true, z: 20,
+      style: { text: cutoffText(), fill: '#8b98a8', fontSize: 10 }
+    }];
+  }
+
   function liveFor(name) {
     if (!LIVE || !SNAP.indices[name]) return null;
     if (SNAP.indices[name].date < DATA_DATE) return null;
@@ -676,7 +692,7 @@
       ' 个交易日），越近的历史权重越高。<br/>' +
       '<b>4. 概率</b>：邻居之后 h 个交易日的涨跌频率即为经验概率，再按独立样本量向「截至今日的无条件上涨频率」收缩' +
       '（重叠窗口按 20 日折算独立样本，长周期更依赖基准概率），90% 置信区间由 Beta 后验给出。<br/>' +
-      '<b>5. 空间</b>：邻居的前瞻收益按 <code>σ今日 / σ当时</code> 缩放（限制 0.6~1.6 倍）后取加权分位（10/25/50/75/90），' +
+      '<b>5. 空间</b>：邻居的前瞻收益按 <code>σ今日 / σ当时</code> 缩放（限制 0.35~2.5 倍）后取加权分位（10/25/50/75/90），' +
       '并统计上涨/下跌的条件均值、赔率，以及期间最大涨幅 MFE 与最大跌幅 MAE 的分位。<br/>' +
       '<b>6. 交叉验证</b>：用 EWMA(λ=0.94) 标准化残差自举 3000 条蒙特卡洛路径（零漂移）给出纯波动驱动的分布；' +
       '中证1000 另用 MO 期权反算的 30 天 IV 折算区间。<br/>' +
@@ -699,6 +715,10 @@
     renderMetrics();
     renderCalib();
     renderBtSeries();
+    // 所有图统一在右上角标注数据截止日
+    Object.keys(charts).forEach(function (k) {
+      if (charts[k]) charts[k].setOption({ graphic: cutoffGraphic() });
+    });
   }
 
   renderMethod();
