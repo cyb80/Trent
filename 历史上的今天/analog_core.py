@@ -669,6 +669,27 @@ def _fit_weights(dist, t, h, close_len):
     return sel, ds, w, n_eff
 
 
+def _block_neighbors(mats, t, gap=20, k=30):
+    """各特征块各自的最近历史日（仅用于画图，不参与概率计算）。
+
+    返回 {block: [(idx, 块距离), ...]}，块距离为块内特征 z 差的均方根。
+    """
+    out = {}
+    for blk, (d, ok) in _block_dists(mats, t).items():
+        cand = np.where(ok & (np.arange(len(d)) <= t - 25))[0]
+        if not len(cand):
+            continue
+        cand = cand[np.argsort(d[cand])]
+        keep = []
+        for s in cand:
+            if all(abs(int(s) - int(x)) >= gap for x in keep):
+                keep.append(int(s))
+                if len(keep) >= k:
+                    break
+        out[blk] = [(s, float(math.sqrt(max(d[s], 0.0)))) for s in keep]
+    return out
+
+
 def _display_idx(dist, t, h, n):
     """展示用示例路径：在更大的候选池里按距离排序，贪心保留两两间隔>=DISPLAY_GAP 的日期。
 
@@ -978,6 +999,8 @@ def run(verbose=True):
                 'close': [_r(x, 2) for x in np.asarray(feat['close'], dtype=float)],
             },
             'blocks': _block_snapshot(feat, t),
+            'block_nb': {k: [{'date': feat['dates'][s], 'd': _r(v, 3)} for s, v in lst]
+                         for k, lst in _block_neighbors(mats, t).items()},
             'block_last': feat['block_last'],
             'horizons': pred,
         }

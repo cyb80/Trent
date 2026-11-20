@@ -299,6 +299,82 @@
       '拖动下方滑块可缩放时间范围。';
   }
 
+  // ---------------------------------------------------------------- 分块相似日位置
+  var BLOCK_META = [
+    ['trend', '趋势', '#e53935'], ['momentum', '动量', '#fb8c00'],
+    ['vol', '波动', '#1e88e5'], ['valuation', '估值', '#8e24aa'],
+    ['sentiment', '情绪', '#00897b'], ['volume', '量能', '#6d4c41'],
+    ['macro', '宏观', '#5e35b1'], ['basis', '基差', '#455a64']
+  ];
+
+  function renderBlockMaps() {
+    var box = document.getElementById('block-maps');
+    var v = byIdx(state.idx), px = v.price, nb = v.block_nb || {};
+    if (!box || !px || !px.dates) return;
+    if (!box.dataset.built) {
+      box.innerHTML = BLOCK_META.map(function (m, i) {
+        return '<div class="chart-card"><h3>' + m[1] + ' · 历史相似日' +
+          '<small>只用「' + m[1] + '」块特征算相似度</small></h3>' +
+          '<div id="chart-b' + i + '" class="chart-container sm"></div>' +
+          '<div class="note" id="bnote' + i + '"></div></div>';
+      }).join('');
+      box.dataset.built = '1';
+    }
+    var dates = px.dates, close = px.close, pos = {};
+    for (var i = 0; i < dates.length; i++) pos[dates[i]] = i;
+
+    BLOCK_META.forEach(function (m, i) {
+      var key = m[0], color = m[2], pts = [];
+      (nb[key] || []).forEach(function (x) {
+        if (pos[x.date] === undefined) return;
+        pts.push({ value: [pos[x.date], close[pos[x.date]]], date: x.date, d: x.d });
+      });
+      var dom = document.getElementById('chart-b' + i);
+      var ch = charts['b' + i] || (charts['b' + i] = echarts.init(dom));
+      ch.setOption({
+        animation: false,
+        tooltip: {
+          trigger: 'item',
+          formatter: function (p) {
+            var d = p.data;
+            if (!d || d.date === undefined) return '';
+            return '<b>' + d.date + '</b><br/>收盘 ' + d.value[1] +
+              (d.d !== undefined ? '<br/>「' + m[1] + '」块距离 ' + d.d : '');
+          }
+        },
+        grid: { left: 62, right: 18, top: 12, bottom: 26 },
+        dataZoom: [{ type: 'inside' }],
+        xAxis: {
+          type: 'category', data: dates, boundaryGap: false,
+          axisLabel: { fontSize: 9, hideOverlap: true, formatter: function (v2) { return v2.slice(2, 7); } },
+          axisTick: { show: false }
+        },
+        yAxis: {
+          type: 'value', scale: true,
+          axisLabel: { fontSize: 9 }, splitLine: { lineStyle: { color: '#f0f2f5' } }
+        },
+        series: [
+          {
+            name: '收盘价', type: 'line', data: close, symbol: 'none',
+            lineStyle: { color: '#b8c2cc', width: 1 }, sampling: 'lttb', z: 1
+          },
+          {
+            name: m[1] + '相似日', type: 'scatter', data: pts, symbolSize: 7, z: 3,
+            itemStyle: { color: color, opacity: 0.85, borderColor: '#fff', borderWidth: 0.6 }
+          }
+        ]
+      }, true);
+      ch.resize();
+      var note = document.getElementById('bnote' + i);
+      if (note) {
+        note.innerHTML = pts.length
+          ? '共 <b>' + pts.length + '</b> 个点（两两间隔 ≥20 个交易日）；块距离 = 该块内各特征 z 差的均方根，越小越像。' +
+            '只看单一维度，与 8 维综合相似日不同，仅用于观察各维度分别在哪些历史阶段出现过相似状态。'
+          : '该块当前数据不足，暂无可比历史日。';
+      }
+    });
+  }
+
   // ---------------------------------------------------------------- 收益分布
   function renderHist() {
     var name = state.idx, h = state.hz;
@@ -615,6 +691,7 @@
     renderKpi();
     renderFan();
     renderMap();
+    renderBlockMaps();
     renderHist();
     renderNeighbors();
     renderCross();
