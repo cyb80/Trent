@@ -28,6 +28,9 @@ jobs:
       contents: write
       pages: write
       id-token: write
+      # deploy-pages 需要用工作流令牌列出本次运行的 artifact, 缺少 actions: read 会
+      # 报 "No artifacts named github-pages were found"(实际已上传成功)导致部署失败
+      actions: read
 
     steps:
       - name: 检出代码
@@ -135,6 +138,9 @@ jobs:
       contents: write
       pages: write
       id-token: write
+      # deploy-pages 需要用工作流令牌列出本次运行的 artifact, 缺少 actions: read 会
+      # 报 "No artifacts named github-pages were found"(实际已上传成功)导致部署失败
+      actions: read
 
     steps:
       - name: 检出代码
