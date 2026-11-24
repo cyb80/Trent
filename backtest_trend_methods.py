@@ -263,10 +263,10 @@ def backtest(trend_params):
 
     # 组合权重（信号滞后2日: 用 t-2 的指标给第 t 日收益）
     def weight_from(ts, ic_s, im_s):
-        ic_strong = tre_ic.reindex(ts).astype(bool).fillna(False)
-        im_strong = tre_im.reindex(ts).astype(bool).fillna(False)
-        lv_ic = lowvol_ic.reindex(ts).astype(bool).fillna(False)
-        lv_im = lowvol_im.reindex(ts).astype(bool).fillna(False)
+        ic_strong = tre_ic.reindex(ts).fillna(False).astype(bool)
+        im_strong = tre_im.reindex(ts).fillna(False).astype(bool)
+        lv_ic = lowvol_ic.reindex(ts).fillna(False).astype(bool)
+        lv_im = lowvol_im.reindex(ts).fillna(False).astype(bool)
         w_ic = np.zeros(len(ts)); w_im = np.zeros(len(ts))
         for i, dt in enumerate(ts):
             s_ic, s_im = ic_strong.iloc[i], im_strong.iloc[i]

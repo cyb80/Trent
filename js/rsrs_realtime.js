@@ -210,8 +210,30 @@
     });
   }
 
+  function fillMissing(name, st) {
+    var statusEl = document.getElementById('pred-status-' + (SUFFIX_MAP[name] || name));
+    if (statusEl) {
+      statusEl.textContent = '数据缺失：现货仅更新至 ' + st.spot_last + '，缺 ' + st.missing_days +
+        ' 个交易日，暂停盘中预测';
+    }
+    Object.keys(json[name].strategies).forEach(function (key) {
+      var cell = document.querySelector('.pred-cell[data-idx="' + name + '"][data-key="' + key + '"]');
+      if (cell) { cell.textContent = '数据缺失'; cell.className = 'pred-cell'; }
+    });
+  }
+
   var names = ['上证50', '沪深300', '中证500', '中证1000'];
-  Promise.all(names.map(function (name) {
+  var active = [];
+  names.forEach(function (name) {
+    var st = json[name] && json[name].data_status;
+    if (st && st.stale) {
+      fillMissing(name, st);
+    } else {
+      active.push(name);
+    }
+  });
+
+  Promise.all(active.map(function (name) {
     return fetchRT(name).then(function (rt) { return { name: name, rt: rt }; });
   })).then(function (list) {
     var doneTime = fmtTime(new Date(Date.now() + (480 + new Date().getTimezoneOffset()) * 60000));

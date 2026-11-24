@@ -206,13 +206,20 @@ def incremental_update():
 # ---------- 由落盘近月序列生成净值 ----------
 def build_nav(table):
     idx = load_spot_from_xlsx()
-    calendar = pd.DatetimeIndex(table['date'])
+    calendar_all = pd.DatetimeIndex(table['date'])
+    futures_last = calendar_all.max()
+    spot_last = min(idx['IC'].index.max(), idx['IM'].index.max())
+    # 趋势/低波动依赖现货, 期货收益只能算到现货最后一日; 现货缺失的交易日不参与策略计算
+    signal_last = min(futures_last, spot_last)
+    missing = [d for d in calendar_all if d > signal_last]
+    calendar = calendar_all[calendar_all <= signal_last]
+    calendar = calendar[calendar.isin(idx['IC'].index) & calendar.isin(idx['IM'].index)]
 
     def leg(col):
         ret = table[col + '_ret'].astype(float).values
         roll = table[col + '_roll'].astype(float).fillna(0).values
-        ret = pd.Series(ret, index=calendar)
-        roll = pd.Series(roll, index=calendar)
+        ret = pd.Series(ret, index=calendar_all).reindex(calendar)
+        roll = pd.Series(roll, index=calendar_all).reindex(calendar)
         return ret, roll
 
     ret_ic, roll_ic = leg('IC')
@@ -226,32 +233,36 @@ def build_nav(table):
 
     vol60_ic = ret_ic.rolling(bt.VOL60).std() * np.sqrt(ANNUAL)
     med_ic = vol60_ic.rolling(bt.MED_WIN, min_periods=bt.MED_MIN).median()
-    lowvol_ic = (vol60_ic < med_ic).astype(bool)
+    lowvol_ic = (vol60_ic < med_ic).where(vol60_ic.notna() & med_ic.notna())
     vol60_im = ret_im.rolling(bt.VOL60).std() * np.sqrt(ANNUAL)
     med_im = vol60_im.rolling(bt.MED_WIN, min_periods=bt.MED_MIN).median()
-    lowvol_im = (vol60_im < med_im).astype(bool)
+    lowvol_im = (vol60_im < med_im).where(vol60_im.notna() & med_im.notna())
 
     def weight_from(ts):
-        ic_s = tre_ic.reindex(ts).astype(bool).fillna(False)
-        im_s = tre_im.reindex(ts).astype(bool).fillna(False)
-        lv_ic = lowvol_ic.reindex(ts).astype(bool).fillna(False)
-        lv_im = lowvol_im.reindex(ts).astype(bool).fillna(False)
-        w_ic = np.zeros(len(ts)); w_im = np.zeros(len(ts))
+        # 缺失数据保持 NaN, 不伪造成强势/弱势, 该交易日不参与净值计算
+        ic_s = tre_ic.reindex(ts)
+        im_s = tre_im.reindex(ts)
+        lv_ic = lowvol_ic.reindex(ts)
+        lv_im = lowvol_im.reindex(ts)
+        w_ic = pd.Series(np.nan, index=ts)
+        w_im = pd.Series(np.nan, index=ts)
         for i, dt in enumerate(ts):
             sci, sim = ic_s.iloc[i], im_s.iloc[i]
             lvi, lvm = lv_ic.iloc[i], lv_im.iloc[i]
+            if pd.isna(sci) or pd.isna(sim) or pd.isna(lvi) or pd.isna(lvm):
+                continue
             if sci and sim:
                 if lvi and lvm:
-                    w_ic[i] = 0.60; w_im[i] = 0.60
+                    w_ic.iloc[i] = 0.60; w_im.iloc[i] = 0.60
                 else:
-                    w_ic[i] = 0.50; w_im[i] = 0.50
+                    w_ic.iloc[i] = 0.50; w_im.iloc[i] = 0.50
             elif sci and not sim:
-                w_ic[i] = 0.75; w_im[i] = 0.25
+                w_ic.iloc[i] = 0.75; w_im.iloc[i] = 0.25
             elif not sci and sim:
-                w_ic[i] = 0.25; w_im[i] = 0.75
+                w_ic.iloc[i] = 0.25; w_im.iloc[i] = 0.75
             else:
-                w_ic[i] = 0.125; w_im[i] = 0.125
-        return pd.Series(w_ic, index=ts), pd.Series(w_im, index=ts)
+                w_ic.iloc[i] = 0.125; w_im.iloc[i] = 0.125
+        return w_ic, w_im
 
     sig_ic, sig_im = weight_from(calendar[:-NAV_LAG] if NAV_LAG > 0 else calendar)
     w_ic = pd.Series(index=calendar, dtype=float)
@@ -295,6 +306,17 @@ def build_nav(table):
         'exposure': [round(float(v), 3) for v in (w_ic.loc[sub.index] + w_im.loc[sub.index]).values],
         'eval_start': eval_start.strftime('%Y-%m-%d'),
         'eval_end': eval_end.strftime('%Y-%m-%d'),
+        'data_status': {
+            'spot_ic_last': idx['IC'].index.max().strftime('%Y-%m-%d'),
+            'spot_im_last': idx['IM'].index.max().strftime('%Y-%m-%d'),
+            'spot_last': spot_last.strftime('%Y-%m-%d'),
+            'futures_last': futures_last.strftime('%Y-%m-%d'),
+            'signal_last': signal_last.strftime('%Y-%m-%d'),
+            'missing_days': len(missing),
+            'missing_from': missing[0].strftime('%Y-%m-%d') if missing else None,
+            'missing_to': missing[-1].strftime('%Y-%m-%d') if missing else None,
+            'stale': bool(missing),
+        },
         'performance': {
             'annual_return': '%.2f%%' % (ann * 100),
             'cumulative_return': '%.2f%%' % (total * 100),
@@ -319,6 +341,7 @@ def write_js(nav):
         'strat_nav': nav['strat_nav'],
         'bench_nav': nav['bench_nav'],
         'exposure': nav['exposure'],
+        'data_status': nav['data_status'],
         'performance': nav['performance'],
     }
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -327,6 +350,13 @@ def write_js(nav):
     print('已保存:', OUT_PATH)
     print('  评价期: %s ~ %s  净值点数: %d' % (data['eval_start'], data['eval_end'], len(nav['dates'])))
     print('  策略末期净值: %.4f  基准(中证1000)末期净值: %.4f' % (nav['strat_nav'][-1], nav['bench_nav'][-1]))
+    ds = nav['data_status']
+    if ds['stale']:
+        print('  [数据缺失] 现货截止 %s, 期货截止 %s, 缺失 %d 个交易日 (%s ~ %s); 回测已截止 %s'
+              % (ds['spot_last'], ds['futures_last'], ds['missing_days'],
+                 ds['missing_from'], ds['missing_to'], nav['eval_end']))
+    else:
+        print('  数据完整: 现货/期货均截止 %s' % ds['spot_last'])
     print('  绩效: %s' % data['performance'])
 
 

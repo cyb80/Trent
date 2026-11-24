@@ -436,9 +436,28 @@
 
   // ---------------- 回测整体渲染 ----------------
   var current = null;
+  function renderDataStatus() {
+    var el = document.getElementById("data-status");
+    if (!el) return;
+    var st = bt.data_status || live.data_status || {};
+    el.style.display = "block";
+    if (st.stale) {
+      el.className = "data-status warn";
+      el.innerHTML = "<b>数据缺失</b>：现货行情仅更新至 <b>" + st.spot_last + "</b>，期货已至 <b>" +
+        (st.futures_last || "—") + "</b>，缺 <b>" + st.missing_days + "</b> 个交易日（" +
+        (st.missing_from || "—") + " ~ " + (st.missing_to || "—") +
+        "）。回测净值与持仓期净值已截止 " + bt.eval_end +
+        "；下方实时基差排名仍按当前实时价格计算，但不含缺失交易日的历史累计。";
+    } else if (st.spot_last) {
+      el.className = "data-status ok";
+      el.textContent = "数据完整：现货与期货均更新至 " + st.spot_last + "。";
+    }
+  }
+
   function renderBacktest() {
     var r = rebuild(state.lo, state.sh);
     current = r;
+    renderDataStatus();
     renderKPI(r);
     renderNavChart(r);
     renderYearChart(r);
@@ -446,8 +465,12 @@
     renderAttr(r);
     renderDesc(r);
     renderParams(r);
+    var ds = bt.data_status || live.data_status || {};
     document.getElementById("data-source").textContent =
       "回测数据源：中金所官方日行情（全部月份合约） + 对应现货指数收盘（via akshare） | 数据生成于 " + bt.generated_at
+      + (ds.spot_last ? " | 现货截止 " + ds.spot_last : "")
+      + (ds.futures_last ? " | 期货截止 " + ds.futures_last : "")
+      + (ds.stale ? " | 数据缺失 " + ds.missing_days + " 个交易日" : "")
       + " | 实时行情：东方财富";
   }
 

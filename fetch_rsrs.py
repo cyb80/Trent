@@ -13,9 +13,14 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
-import akshare as ak
+try:
+    import akshare as ak
+except Exception as _e:  # akshare 版本/依赖异常时仍可用内置 HTTP 源抓取行情
+    ak = None
+    print(f'[警告] akshare 导入失败({_e}), 将仅使用 HTTP 行情源')
 import numpy as np
 import pandas as pd
+import requests
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 XLSX_PATH = os.path.join(DATA_DIR, '指数行情序列.xlsx')
@@ -203,13 +208,24 @@ def _run_with_timeout(fn, timeout=25):
 
 
 def fetch_akshare_daily(code, start_date, attempts=3, backoff=10):
-    """从多个数据源获取指数日线数据（东方财富→新浪→腾讯），返回标准DataFrame
+    """从多个数据源获取指数日线数据（东财→东财HTTP→新浪→腾讯HTTP→腾讯），返回标准DataFrame
 
     说明: 新浪/东财对部分服务器IP（如GitHub Actions）会拒绝连接, 因此保留多源兜底。
+    akshare 1.20.43 起移除了 stock_zh_index_daily_em/sina/tx, 因此额外加入不依赖
+    akshare 接口名的 HTTP 源, 避免库升级后所有源同时失效。
     腾讯源的amount列与"新浪volume÷100"完全一致（单位: 手），可直接用作VOLUME。
     每个源最多尝试attempts次(间隔backoff秒), 应对数据源对服务器IP的间歇性拦截。
-    返回 (df, ok): ok=True表示至少有一个源成功。
+    返回 (df, ok, err_detail): ok=True表示至少有一个源成功。
     """
+    headers = {'User-Agent': 'Mozilla/5.0'}
+
+    def _finalize(df):
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.set_index('date')
+        df = df[['OPEN', 'CLOSE', 'HIGH', 'LOW', 'VOLUME']]
+        df = df[df.index >= start_date].sort_index()
+        return df
+
     def s_em():
         df = ak.stock_zh_index_daily_em(symbol=code)
         df['date'] = pd.to_datetime(df['date'])
@@ -219,6 +235,29 @@ def fetch_akshare_daily(code, start_date, attempts=3, backoff=10):
         df = df[df.index >= start_date]
         df = df.sort_index()
         return df
+
+    def s_em_http():
+        # 东方财富 K 线接口(不依赖 akshare 版本)
+        secid = ('1.' if code.startswith('sh') else '0.') + code[2:]
+        url = 'https://push2his.eastmoney.com/api/qt/stock/kline/get'
+        params = {
+            'secid': secid, 'klt': '101', 'fqt': '0',
+            'beg': pd.to_datetime(start_date).strftime('%Y%m%d'), 'end': '20500101',
+            'fields1': 'f1,f2,f3,f4,f5,f6',
+            'fields2': 'f51,f52,f53,f54,f55,f56,f57',
+        }
+        r = requests.get(url, params=params, headers=headers, timeout=20)
+        r.raise_for_status()
+        data = (r.json() or {}).get('data') or {}
+        klines = data.get('klines') or []
+        if not klines:
+            raise ValueError('返回无K线数据')
+        rows = []
+        for k in klines:
+            p = k.split(',')
+            rows.append({'date': p[0], 'OPEN': float(p[1]), 'CLOSE': float(p[2]),
+                         'HIGH': float(p[3]), 'LOW': float(p[4]), 'VOLUME': float(p[5])})
+        return _finalize(pd.DataFrame(rows))
 
     def s_sina():
         df = ak.stock_zh_index_daily(symbol=code)
@@ -232,6 +271,23 @@ def fetch_akshare_daily(code, start_date, attempts=3, backoff=10):
         df = df.sort_index()
         return df
 
+    def s_tx_http():
+        # 腾讯日 K 接口(不依赖 akshare 版本)
+        sym = code
+        url = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get'
+        params = {'param': '%s,day,%s,2050-01-01,640,qfq' % (sym, start_date)}
+        r = requests.get(url, params=params, headers=headers, timeout=20)
+        r.raise_for_status()
+        d = (r.json() or {}).get('data', {}).get(sym) or {}
+        arr = d.get('qfqday') or d.get('day') or []
+        if not arr:
+            raise ValueError('返回无K线数据')
+        rows = []
+        for p in arr:
+            rows.append({'date': p[0], 'OPEN': float(p[1]), 'CLOSE': float(p[2]),
+                         'HIGH': float(p[3]), 'LOW': float(p[4]), 'VOLUME': float(p[5])})
+        return _finalize(pd.DataFrame(rows))
+
     def s_tx():
         # 腾讯 (amount列即手数, 与新浪÷100一致)
         df = ak.stock_zh_index_daily_tx(symbol=code)
@@ -244,21 +300,24 @@ def fetch_akshare_daily(code, start_date, attempts=3, backoff=10):
         return df
 
     errors = []
-    for src_name, fn in [('东财EM', s_em), ('新浪', s_sina), ('腾讯', s_tx)]:
+    sources = [('东财EM', s_em), ('东财HTTP', s_em_http), ('新浪', s_sina),
+               ('腾讯HTTP', s_tx_http), ('腾讯TX', s_tx)]
+    for src_name, fn in sources:
         last_err = None
         for i in range(attempts):
             df, err = _run_with_timeout(fn, 25)
             if df is not None and len(df) > 0:
                 print(f'  OHLCV源({src_name})成功: {len(df)}条' + (f' (第{i + 1}次尝试)' if i else ''))
-                return df, True
+                return df, True, None
             last_err = err or '空数据'
             if i < attempts - 1:
                 time.sleep(backoff)
         errors.append(f'{src_name}: {last_err}')
         print(f'  OHLCV源({src_name}){attempts}次尝试均失败: {last_err}')
 
-    print(f'  OHLCV全部数据源失败: {" | ".join(errors)}')
-    return None, False
+    detail = ' | '.join(errors)
+    print(f'  OHLCV全部数据源失败: {detail}')
+    return None, False, detail
 
 
 def fetch_pe_ttm(name_cn, start_date):
@@ -316,6 +375,7 @@ def update_xlsx_from_akshare():
     dict_data = pd.read_excel(XLSX_PATH, index_col=0, sheet_name=None)
     updated = False
     ohlc_fail = []  # OHLCV全部数据源失败的指数
+    ohlc_errors = {}  # 各指数失败的具体原因(便于定位是接口改名还是网络问题)
 
     # ---- 1. 更新OHLCV ----
     print('  --- OHLCV增量更新 ---')
@@ -339,9 +399,10 @@ def update_xlsx_from_akshare():
         today_bj = now_bj.strftime('%Y-%m-%d')
         in_session = now_bj.hour < 15  # 北京时间15:00前视为盘中(当日数据不完整)
 
-        new_data, src_ok = fetch_akshare_daily(code, start_date)
+        new_data, src_ok, src_err = fetch_akshare_daily(code, start_date)
         if not src_ok:
             ohlc_fail.append(display_name)
+            ohlc_errors[display_name] = src_err
         if new_data is None or len(new_data) == 0:
             print(f'  [{display_name}] OHLCV无新数据')
         else:
@@ -383,6 +444,7 @@ def update_xlsx_from_akshare():
 
     # ---- 2. 更新PE_TTM ----
     print('  --- PE_TTM更新 ---')
+    pe_last = {}
     for display_name, cfg in TARGET_INDICES.items():
         sheet_key = cfg['sheet_key']
         sheet_name = None
@@ -400,19 +462,22 @@ def update_xlsx_from_akshare():
         pe_data = fetch_pe_ttm(lg_name, start_date)
         if pe_data is not None and len(pe_data) > 0:
             # 将PE_TTM合并到df中
+            pe_last[display_name] = pd.to_datetime(pe_data.index).max().strftime('%Y-%m-%d')
             before_cnt = df['PE_TTM'].notna().sum() if 'PE_TTM' in df.columns else 0
             df['PE_TTM'] = pe_data['PE_TTM']
             after_cnt = df['PE_TTM'].notna().sum()
             if 'PE_TTM' not in dict_data[sheet_name].columns or before_cnt != after_cnt:
                 updated = True
-            print(f'  [{display_name}] PE_TTM: {before_cnt}→{after_cnt} 条有效')
+            print(f'  [{display_name}] PE_TTM: {before_cnt}→{after_cnt} 条有效, 最新PE日期 {pe_last[display_name]}')
         dict_data[sheet_name] = df
 
     # ---- 3. 更新国债收益率 ----
     print('  --- 国债收益率更新 ---')
     bond_sheet = '国债收益率'
+    bond_last = None
     bond_data = fetch_bond_yield()
     if bond_data is not None and len(bond_data) > 0:
+        bond_last = pd.to_datetime(bond_data.index).max().strftime('%Y-%m-%d')
         before_cnt = len(dict_data.get(bond_sheet, pd.DataFrame()))
         if bond_sheet in dict_data:
             existing = dict_data[bond_sheet]
@@ -427,6 +492,8 @@ def update_xlsx_from_akshare():
         after_cnt = len(dict_data[bond_sheet])
         updated = True
         print(f'  国债收益率: {before_cnt}→{after_cnt} 条')
+    if bond_last is None and bond_sheet in dict_data and len(dict_data[bond_sheet]):
+        bond_last = pd.to_datetime(dict_data[bond_sheet].index).max().strftime('%Y-%m-%d')
 
     # ---- 4. 写入xlsx ----
     if updated:
@@ -438,15 +505,44 @@ def update_xlsx_from_akshare():
         print('无需更新')
 
     # ---- 5. 写数据源状态文件(供deploy.yml最后一步检查, 全源失败时Actions标红告警) ----
-    status = {'ok': not ohlc_fail}
+    last_dates = {}
+    for display_name, cfg in TARGET_INDICES.items():
+        for sn in dict_data.keys():
+            if cfg['sheet_key'] in sn or display_name in sn:
+                try:
+                    last_dates[display_name] = pd.to_datetime(dict_data[sn].index).max().strftime('%Y-%m-%d')
+                except Exception:
+                    last_dates[display_name] = None
+                break
+    status = {
+        'ok': not ohlc_fail,
+        'as_of': (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M'),
+        'last_dates': last_dates,
+        'pe_last': pe_last,
+        'bond_last': bond_last,
+    }
     if ohlc_fail:
-        status['detail'] = (f'OHLCV数据源全部失败(东财/新浪/腾讯各重试3次): {", ".join(ohlc_fail)}。'
+        detail = '；'.join(f'{n}: {ohlc_errors.get(n, "未知原因")}' for n in ohlc_fail)
+        status['detail'] = (f'OHLCV数据源全部失败: {detail}。'
                             f'页面数据可能滞后, 详见运行日志; 晚间20:30定时任务会自动重试')
+        status['errors'] = ohlc_errors
     status_path = os.path.join(DATA_DIR, 'fetch_status.json')
     with open(status_path, 'w', encoding='utf-8') as f:
         json.dump(status, f, ensure_ascii=False)
     print(f'数据源状态: {"正常" if status["ok"] else "异常(" + status["detail"] + ")"}')
     return True
+
+
+def load_futures_dates():
+    """读取股指期货交易日历, 用于判断现货行情是否缺失"""
+    path = os.path.join(DATA_DIR, 'ma200_futures.csv')
+    if not os.path.exists(path):
+        return None
+    try:
+        d = pd.read_csv(path, usecols=['date'], parse_dates=['date'])['date']
+        return pd.DatetimeIndex(sorted(d.dropna().unique()))
+    except Exception:
+        return None
 
 
 def main():
@@ -473,6 +569,7 @@ def main():
     print(f'成功读取 {len(dict_data)} 个sheet: {list(dict_data.keys())}')
 
     results = {}
+    fut_dates = load_futures_dates()
     for display_name, cfg in TARGET_INDICES.items():
         code = cfg['code']
         sheet_key = cfg['sheet_key']
@@ -506,6 +603,21 @@ def main():
         df = df.sort_index()
         df = df.dropna(subset=['HIGH', 'LOW', 'CLOSE'])
         print(f'    数据量: {len(df)} 条, {df.index.min().date()} ~ {df.index.max().date()}')
+
+        # 数据完整性: 现货最后日期 vs 期货交易日历(缺失时不计算盘中预测)
+        last_dt = df.index.max()
+        missing = [d for d in fut_dates if d > last_dt] if fut_dates is not None and len(fut_dates) else []
+        data_status = {
+            'spot_last': last_dt.strftime('%Y-%m-%d'),
+            'futures_last': fut_dates.max().strftime('%Y-%m-%d') if fut_dates is not None and len(fut_dates) else None,
+            'missing_days': len(missing),
+            'missing_from': missing[0].strftime('%Y-%m-%d') if missing else None,
+            'missing_to': missing[-1].strftime('%Y-%m-%d') if missing else None,
+            'stale': bool(missing),
+        }
+        if missing:
+            print(f'    [数据缺失] 现货截止 {data_status["spot_last"]}, 期货日历截止 {data_status["futures_last"]}, '
+                  f'缺 {len(missing)} 个交易日 ({data_status["missing_from"]} ~ {data_status["missing_to"]})')
 
         # 计算RSRS
         rsrs_df = compute_rsrs_indicators(df, N=cfg['N'], M=cfg['M'])
@@ -566,6 +678,7 @@ def main():
 
         idx_data = {
             'dates': common_dates_str,
+            'data_status': data_status,
             'benchmark_nav': [round(v, 6) for v in bm_nav.values],
             'strategies': strategies,
             'params': {'N': cfg['N'], 'M': cfg['M'], 'ths': cfg['ths']},

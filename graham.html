@@ -8,6 +8,9 @@
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 <style>
 .chart-container { height: 500px; }
+.data-status { padding:10px 14px; border-radius:8px; font-size:0.85rem; margin-bottom:14px; border:1px solid; line-height:1.7; }
+.data-status.warn { background:#fff3e0; border-color:#ffb74d; color:#e65100; font-weight:600; }
+.data-status.ok { background:#f1f8e9; border-color:#c5e1a5; color:#2e7d32; }
 </style>
 </head>
 <body>
@@ -32,6 +35,7 @@
     <h2>格雷厄姆指数</h2>
     <p>(1/PE_TTM) / 10年期国债收益率（%）&emsp;|&emsp;数值越大，股票相对债券越有吸引力</p>
   </div>
+  <div id="data-status" class="data-status ok" style="display:none;"></div>
 
   <div class="charts-grid">
     <div class="chart-card">
@@ -224,14 +228,37 @@
     window.addEventListener('resize', function() { chart.resize(); });
   }
 
+  function renderDataStatus() {
+    var el = document.getElementById('data-status');
+    var st = (json['上证50'] || {}).data_status;
+    if (!el || !st) return;
+    el.style.display = 'block';
+    var freq = st.pe_frequency || '月频';
+    if (st.stale) {
+      el.className = 'data-status warn';
+      el.innerHTML = '<b>数据缺失</b>：' + (st.detail || '') + '。当前图表为 <b>' + freq +
+        '</b> 数据，最新一期停留在 ' + st.latest_date + '（PE ' + (st.pe_last || '—') +
+        '，收盘 ' + (st.close_last || '—') + '，国债 ' + (st.bond_last || '—') + '）。';
+    } else {
+      el.className = 'data-status ok';
+      el.textContent = '数据完整：最新一期 ' + st.latest_date + '（PE为' + freq + '数据）；收盘截止 ' +
+        (st.close_last || '—') + '，国债截止 ' + (st.bond_last || '—') + '。';
+    }
+  }
+
+  renderDataStatus();
   INDEX_KEYS.forEach(function(key, i) {
     if (json[key]) {
       renderChart(CHART_IDS[i], json[key], MAIN_COLORS[i]);
     }
   });
   if (json['上证50']) {
+    var _ds = json['上证50'].data_status || {};
     document.getElementById('data-source').textContent =
-      '数据来源：' + json['上证50'].data_source + ' | 最新数据日期：' + json['上证50'].latest_date;
+      '数据来源：' + json['上证50'].data_source + ' | 最新数据日期：' + json['上证50'].latest_date +
+      ' | PE为' + (_ds.pe_frequency || '月频') + '数据' +
+      (_ds.close_last ? ' | 收盘截止 ' + _ds.close_last : '') +
+      (_ds.bond_last ? ' | 国债截止 ' + _ds.bond_last : '');
   }
 })();
 </script>

@@ -19,6 +19,7 @@ import pandas as pd
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 XLSX_PATH = os.path.join(DATA_DIR, '指数行情序列.xlsx')
+FUT_CSV = os.path.join(DATA_DIR, 'ma200_futures.csv')
 
 MA = 200          # 长期均线
 CONF_DAYS = 5     # 连续确认天数
@@ -93,6 +94,17 @@ def load_close(sheet_key):
     return s
 
 
+def load_futures_dates():
+    """读取已落盘的股指期货交易日历(用于判断现货数据是否缺失)。"""
+    if not os.path.exists(FUT_CSV):
+        return None
+    try:
+        d = pd.read_csv(FUT_CSV, usecols=['date'], parse_dates=['date'])['date']
+        return pd.DatetimeIndex(sorted(d.dropna().unique()))
+    except Exception:
+        return None
+
+
 def main():
     if not os.path.exists(XLSX_PATH):
         print('[错误] xlsx不存在:', XLSX_PATH)
@@ -148,6 +160,27 @@ def main():
             'position_label': pos_label, 'position_desc': pos_desc,
         }
         print(f'  组合: IC权重={ic_w} IM权重={im_w} 总敞口={expo}倍  [{pos_label}]')
+
+    # 数据完整性: 现货最后日期 vs 期货交易日历; 现货缺失时明确标记, 不做强势/弱势假设
+    fut_dates = load_futures_dates()
+    spot_last = pd.to_datetime(live['latest_date']) if live.get('latest_date') else None
+    missing = []
+    if fut_dates is not None and len(fut_dates) and spot_last is not None:
+        missing = [d for d in fut_dates if d > spot_last]
+    live['data_status'] = {
+        'spot_last': spot_last.strftime('%Y-%m-%d') if spot_last is not None else None,
+        'futures_last': fut_dates.max().strftime('%Y-%m-%d') if fut_dates is not None and len(fut_dates) else None,
+        'missing_days': len(missing),
+        'missing_from': missing[0].strftime('%Y-%m-%d') if missing else None,
+        'missing_to': missing[-1].strftime('%Y-%m-%d') if missing else None,
+        'stale': bool(missing),
+    }
+    if missing:
+        print('  [数据缺失] 现货截止 %s, 期货日历截止 %s, 缺失 %d 个交易日 (%s ~ %s)'
+              % (live['data_status']['spot_last'], live['data_status']['futures_last'],
+                 len(missing), missing[0].strftime('%Y-%m-%d'), missing[-1].strftime('%Y-%m-%d')))
+    else:
+        print('  数据完整: 现货截止 %s' % live['data_status']['spot_last'])
 
     os.makedirs(DATA_DIR, exist_ok=True)
     out = os.path.join(DATA_DIR, 'ma200_live.js')

@@ -554,6 +554,16 @@ def build_features(code, name, product, df, ctx):
         if len(fs):
             last_obs['basis'] = fs.max().strftime('%Y-%m-%d')
 
+    data_status = {
+        'price_last': dates[-1].strftime('%Y-%m-%d'),
+        'margin_last': mg.index.max().strftime('%Y-%m-%d') if mg is not None and len(mg) else None,
+        'qvix_last': ctx['qvix'].index.max().strftime('%Y-%m-%d') if ctx['qvix'] is not None and len(ctx['qvix']) else None,
+        'macro_last': mac.index.max().strftime('%Y-%m-%d') if mac is not None and len(mac) else None,
+    }
+    if ctx['fut'] is not None and len(ctx['fut']):
+        _fs = ctx['fut'][ctx['fut']['product'] == product]['date']
+        data_status['futures_last'] = _fs.max().strftime('%Y-%m-%d') if len(_fs) else None
+
     return {
         'code': code, 'name': name, 'product': product,
         'dates': [x.strftime('%Y-%m-%d') for x in dates],
@@ -562,6 +572,7 @@ def build_features(code, name, product, df, ctx):
         'low': np.asarray(lo.values, dtype=float),
         'blocks': blocks,
         'block_last': last_obs,
+        'data_status': data_status,
         'sigma20': np.asarray(rv20.values, dtype=float),
         'logret': np.asarray(logret.values, dtype=float),
     }
@@ -1002,6 +1013,7 @@ def run(verbose=True):
             'block_nb': {k: [{'date': feat['dates'][s], 'd': _r(v, 3)} for s, v in lst]
                          for k, lst in _block_neighbors(mats, t).items()},
             'block_last': feat['block_last'],
+            'data_status': feat['data_status'],
             'horizons': pred,
         }
         if verbose:

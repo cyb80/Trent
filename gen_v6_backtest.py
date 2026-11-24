@@ -229,6 +229,26 @@ def main():
                                                 len(panel_f), panel_f.shape[1]))
     print("现货: %s ~ %s" % (panel_s.index.min().date(), panel_s.index.max().date()))
 
+    # 数据完整性: 现货最后日期 vs 期货交易日历(现货缺失时回测只能截止到现货最后一日)
+    spot_last_raw = max(s.index.max() for s in spot.values())
+    fut_dates_all = pd.DatetimeIndex(sorted(fut["date"].dropna().unique()))
+    fut_last_raw = fut_dates_all.max()
+    missing_days = [d for d in fut_dates_all if d > spot_last_raw]
+    data_status = {
+        "spot_last": spot_last_raw.strftime("%Y-%m-%d"),
+        "futures_last": fut_last_raw.strftime("%Y-%m-%d"),
+        "missing_days": len(missing_days),
+        "missing_from": missing_days[0].strftime("%Y-%m-%d") if missing_days else None,
+        "missing_to": missing_days[-1].strftime("%Y-%m-%d") if missing_days else None,
+        "stale": bool(missing_days),
+    }
+    if missing_days:
+        print("  [数据缺失] 现货截止 %s, 期货截止 %s, 缺 %d 个交易日 (%s ~ %s)"
+              % (data_status["spot_last"], data_status["futures_last"], len(missing_days),
+                 data_status["missing_from"], data_status["missing_to"]))
+    else:
+        print("  数据完整: 现货/期货均截止 %s" % data_status["spot_last"])
+
     rec, r_long, r_short = run_v6(panel_f, panel_s, cal)
     comb, nav, wl, ws = build(rec, r_long, r_short)
     m = metrics(comb, nav)
@@ -274,6 +294,7 @@ def main():
     data = dict(
         generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         eval_start=dates[0], eval_end=dates[-1], lo=V6_LO * 100, sh=V6_SH * 100,
+        data_status=data_status,
         factor=FACTOR, ann=ANN,
         dates=dates,
         r_long=[round(float(v), 8) for v in r_long.reindex(comb.index).fillna(0.0).values],
@@ -350,6 +371,7 @@ def main():
     nav_short = float((1 - rs_seg).prod())
     live = dict(
         generated_at=data["generated_at"], trade_date=str(last_date.date()),
+        data_status=data_status,
         lo=V6_LO * 100, sh=V6_SH * 100, factor=FACTOR, ann=ANN,
         spot={p: dict(name=SPOT_NAME[p], code=PROD2SPOT[p], secid=SPOT_SECID[p],
                       close=float(panel_s[p].loc[last_date])) for p in PROD2SPOT},

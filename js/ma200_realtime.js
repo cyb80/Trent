@@ -22,6 +22,24 @@
   var TXCOD = { IC: "sh000905", IM: "sh000852" };
   var LEG_ORDER = ["IC", "IM"];
 
+  // 数据完整性状态: 现货最后日期 vs 期货最后日期。缺失时页面必须明确提示, 不得当成强势/弱势。
+  var DSTATUS = (function () {
+    var ls = live.data_status || {},
+      bs = back.data_status || {};
+    function pick(a, b, c) {
+      return a != null ? a : b != null ? b : c;
+    }
+    return {
+      stale: typeof ls.stale === "boolean" ? ls.stale : !!bs.stale,
+      spotLast: pick(ls.spot_last, bs.spot_last, live.latest_date || "—"),
+      futuresLast: pick(ls.futures_last, bs.futures_last, "—"),
+      missingDays: pick(ls.missing_days, bs.missing_days, 0),
+      missingFrom: pick(ls.missing_from, bs.missing_from, null),
+      missingTo: pick(ls.missing_to, bs.missing_to, null),
+      backEnd: back.eval_end || "—",
+    };
+  })();
+
   // ---------- 工具 ----------
   function fmtTime(d) {
     function p2(x) {
@@ -297,6 +315,81 @@
     return w;
   }
 
+  function renderDataStatus() {
+    var el = document.getElementById("data-status");
+    if (!el) return;
+    el.style.display = "block";
+    if (DSTATUS.stale) {
+      el.className = "data-status warn";
+      el.innerHTML =
+        "<b>数据缺失</b>：现货行情仅更新至 <b>" +
+        DSTATUS.spotLast +
+        "</b>，期货交易日历已至 <b>" +
+        DSTATUS.futuresLast +
+        "</b>，缺 <b>" +
+        DSTATUS.missingDays +
+        "</b> 个交易日" +
+        (DSTATUS.missingFrom
+          ? "（" + DSTATUS.missingFrom + " ~ " + DSTATUS.missingTo + "）"
+          : "") +
+        "。趋势、低波动与目标敞口均无法计算；回测净值与总敞口已截止到 <b>" +
+        DSTATUS.backEnd +
+        "</b>。";
+    } else {
+      el.className = "data-status ok";
+      el.textContent =
+        "数据完整：现货与期货均更新至 " + DSTATUS.spotLast + "。";
+    }
+  }
+
+  function renderMissing() {
+    var from = DSTATUS.missingFrom || "—",
+      to = DSTATUS.missingTo || "—";
+    document.getElementById("pos-label").innerHTML =
+      '建议持仓：<span class="pos-tag missing">数据缺失</span> &nbsp;暂不给出持仓建议';
+    document.getElementById("pos-desc").textContent =
+      "现货行情缺失 " +
+      DSTATUS.missingDays +
+      " 个交易日（" +
+      from +
+      " ~ " +
+      to +
+      "），无法计算趋势、低波动与目标权重；本页不做强势/弱势假设。";
+    document.getElementById("weight-row").innerHTML =
+      '<div class="weight-item"><div class="k">IC 目标权重</div><div class="v">—</div></div>' +
+      '<div class="weight-item"><div class="k">IM 目标权重</div><div class="v">—</div></div>' +
+      '<div class="weight-item"><div class="k">总名义敞口</div><div class="v expo">—</div></div>';
+
+    var tbody = document.querySelector("#mini-table tbody");
+    var html = "";
+    LEG_ORDER.forEach(function (leg) {
+      var s = live.snap[leg.toLowerCase()] || {};
+      var c = isFinite(s.close) ? s.close.toFixed(2) : "-";
+      var ma = isFinite(s.ma200) ? s.ma200.toFixed(2) : "-";
+      html +=
+        "<tr>" +
+        "<td>" +
+        live.spot[leg].name +
+        "</td>" +
+        "<td>" +
+        c +
+        '<div style="font-size:0.7rem;color:#999">截至 ' +
+        (s.date || "—") +
+        "</div></td><td>" +
+        ma +
+        "</td>" +
+        '<td><span class="badge no">数据缺失</span></td>' +
+        '<td><span class="badge no">数据缺失</span></td>' +
+        "<td>数据缺失</td>" +
+        "</tr>";
+    });
+    tbody.innerHTML = html;
+    document.getElementById("rt-source").textContent =
+      "未使用实时行情：现货历史存在缺口，实时价无法替代缺失交易日；数据文件最新收盘为 " +
+      DSTATUS.spotLast +
+      "。";
+  }
+
   // ---------- 实时行情 ----------
   function withTimeout(promise, ms, tag) {
     return new Promise(function (resolve) {
@@ -393,6 +486,16 @@
     var now = new Date();
     var curMin = now.getHours() * 60 + now.getMinutes();
     var doneTime = fmtTime(now);
+
+    renderDataStatus();
+    if (DSTATUS.stale) {
+      // 现货历史存在缺口: 无法补齐, 也不应假设强/弱, 直接展示缺失
+      document.getElementById("realtime-status").textContent =
+        "数据缺失，暂停实时重算";
+      renderMissing();
+      return;
+    }
+
     document.getElementById("realtime-status").textContent =
       "重算于 " + doneTime + " （页面刷新时更新）";
 
@@ -470,7 +573,8 @@
       back.eval_start +
       " ~ " +
       back.eval_end +
-      "）";
+      "）" +
+      (DSTATUS.stale ? " · 现货缺失，已截止 " + DSTATUS.backEnd : "");
     // 保留用户当前的缩放区间, 避免定时刷新后重置
     var pz = ((chart.getOption() || {}).dataZoom || [])[0];
     var zStart = pz ? pz.start : 0,
@@ -670,12 +774,31 @@
       " · Sharpe <b>" +
       p.sharpe +
       "</b> · 平均敞口 " +
-      p.avg_exposure;
+      p.avg_exposure +
+      (DSTATUS.stale
+        ? ' &nbsp;|&nbsp; <span style="color:#e65100;font-weight:600">数据缺失：现货截止 ' +
+          DSTATUS.spotLast +
+          "，期货截止 " +
+          DSTATUS.futuresLast +
+          "，缺 " +
+          DSTATUS.missingDays +
+          " 个交易日，净值/敞口未延伸</span>"
+        : "");
   }
 
   function renderStatic() {
     // 最新现货数据表
+    var warn = DSTATUS.stale
+      ? '<div class="data-status warn" style="margin-bottom:8px;">现货行情缺失 ' +
+        DSTATUS.missingDays +
+        " 个交易日（" +
+        (DSTATUS.missingFrom || "—") +
+        " ~ " +
+        (DSTATUS.missingTo || "—") +
+        "），下表仅为缺失前最后可用数据。</div>"
+      : "";
     var html =
+      warn +
       '<table class="mini-table"><thead><tr><th>指数</th><th>最新日期</th><th>收盘</th><th>200日均线</th><th>趋势</th><th>低波动</th></tr></thead><tbody>';
     LEG_ORDER.forEach(function (leg) {
       var s = live.snap[leg === "IC" ? "ic" : "im"];
@@ -770,8 +893,11 @@
       })
       .join("");
     document.getElementById("data-source").textContent =
-      "回测数据源：股指期货单合约 + 中证500/中证1000现货(aakshare,xlsx) | 实时：东方财富→腾讯 | 最新数据 " +
-      (live.latest_date || "");
+      "回测数据源：股指期货单合约 + 中证500/中证1000现货(aakshare,xlsx) | 实时：东方财富→腾讯 | 现货截止 " +
+      DSTATUS.spotLast +
+      " | 期货截止 " +
+      DSTATUS.futuresLast +
+      (DSTATUS.stale ? " | 数据缺失 " + DSTATUS.missingDays + " 个交易日" : "");
   }
 
   // ---------- 启动 ----------

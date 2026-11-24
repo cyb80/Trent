@@ -41,7 +41,10 @@ jobs:
       - name: 安装依赖
         run: |
           pip install --upgrade pip
-          pip install pandas numpy akshare requests
+          # 锁定 akshare 版本: 2026-11-14 起 1.20.43+ 移除了 stock_zh_index_daily_em/sina/tx,
+          # 1.20.41+ 移除了 bond_zh_us_rate, 不锁版本会导致所有指数行情/国债收益率静默断更。
+          # 1.20.39 是同时包含上述全部接口的最后一个版本。
+          pip install pandas numpy "akshare==1.20.39" requests
 
       # fetch_rsrs.py 先运行：更新xlsx（OHLCV + PE_TTM + 国债）+ 输出RSRS回测数据
       - name: 更新xlsx并生成RSRS数据

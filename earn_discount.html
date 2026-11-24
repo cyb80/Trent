@@ -28,6 +28,13 @@
   .pos-tag.strong { background:#e53935; }
   .pos-tag.flat   { background:#78909c; }
   .pos-tag.weak   { background:#43a047; }
+  .pos-tag.missing { background:#b0bec5; }
+  .data-status {
+    padding:10px 14px; border-radius:8px; font-size:0.85rem;
+    margin-bottom:12px; border:1px solid; line-height:1.7;
+  }
+  .data-status.ok   { background:#f1f8e9; border-color:#c5e1a5; color:#2e7d32; }
+  .data-status.warn { background:#fff3e0; border-color:#ffb74d; color:#e65100; font-weight:600; }
   .pos-meta { color:#666; font-size:0.82rem; line-height:1.7; }
   .weight-row { display:flex; flex-wrap:wrap; gap:24px; margin-top:6px; }
   .weight-item { text-align:center; }
@@ -75,6 +82,7 @@
   <!-- 当前持仓建议（盘中每30分钟按实时价重算） -->
   <div class="chart-card" style="margin-bottom:24px;">
     <h3>当前持仓建议 <span id="realtime-status" class="realtime-status"></span></h3>
+    <div id="data-status" class="data-status ok" style="display:none;"></div>
     <div id="pos-banner" class="pos-banner top">
       <div>
         <div class="pos-title" id="pos-label">-</div>

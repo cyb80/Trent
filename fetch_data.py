@@ -40,14 +40,14 @@ def calc_rolling_percentile(series, window_years=5):
 
 
 def read_index_data(dict_data, sheet_key):
-    """从xlsx读取指定指数的 CLOSE 和 PE_TTM"""
+    """从xlsx读取指定指数的 CLOSE 和 PE_TTM, 同时返回原始数据日期信息"""
     sheet_name = None
     for sn in dict_data.keys():
         if sheet_key in sn:
             sheet_name = sn
             break
     if sheet_name is None:
-        return None
+        return None, None
 
     df = dict_data[sheet_name].copy()
     df.index = pd.to_datetime(df.index)
@@ -58,20 +58,55 @@ def read_index_data(dict_data, sheet_key):
         cu = c.upper().strip()
         if cu in ('CLOSE', '收盘价', '收盘'):
             col_map[c] = 'close'
-        elif cu in ('PE_TTM', '滚动市盈率', '滚动市盈率'):
+        elif cu in ('PE_TTM', '滚动市盈率'):
             col_map[c] = 'pe_ttm'
     df = df.rename(columns=col_map)
 
     if 'close' not in df.columns or 'pe_ttm' not in df.columns:
-        return None
+        return None, None
 
-    df = df[['close', 'pe_ttm']].dropna()
     df['close'] = pd.to_numeric(df['close'], errors='coerce')
     df['pe_ttm'] = pd.to_numeric(df['pe_ttm'], errors='coerce')
-    df = df.dropna()
+    close_last = df['close'].last_valid_index()
+    pe_dates = df['pe_ttm'].dropna().index
+    pe_last = pe_dates.max() if len(pe_dates) else None
+    # PE为月频数据(乐咕乐股), 用相邻间隔中位数判断频度
+    freq_days = None
+    if len(pe_dates) >= 2:
+        freq_days = float(pd.Series(pe_dates).diff().dt.days.dropna().median())
+    meta = {
+        'close_last': close_last.strftime('%Y-%m-%d') if close_last is not None else None,
+        'pe_last': pe_last.strftime('%Y-%m-%d') if pe_last is not None else None,
+        'pe_freq_days': freq_days,
+    }
+
+    df = df[['close', 'pe_ttm']].dropna()
     df = df[df['pe_ttm'] > 0]
     df = df.sort_index()
-    return df
+    return df, meta
+
+
+def load_fetch_status():
+    path = os.path.join(DATA_DIR, 'fetch_status.json')
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def load_futures_dates():
+    """读取股指期货交易日历, 用于判断现货行情是否缺失"""
+    path = os.path.join(DATA_DIR, 'ma200_futures.csv')
+    if not os.path.exists(path):
+        return None
+    try:
+        d = pd.read_csv(path, usecols=['date'], parse_dates=['date'])['date']
+        return pd.DatetimeIndex(sorted(d.dropna().unique()))
+    except Exception:
+        return None
 
 
 def main():
@@ -122,9 +157,13 @@ def main():
         sys.exit(1)
 
     all_data = {}
+    all_status = {}
+    fetch_status = load_fetch_status()
+    source_pe_last = fetch_status.get('pe_last', {}) if isinstance(fetch_status, dict) else {}
+    fut_dates = load_futures_dates()
     for sheet_key, display_name in INDEX_CONFIG:
         print(f'\n  {display_name}:')
-        df = read_index_data(dict_data, sheet_key)
+        df, meta = read_index_data(dict_data, sheet_key)
         if df is None:
             print(f'    未找到对应sheet或缺少close/pe_ttm列')
             continue
@@ -142,6 +181,35 @@ def main():
             print(f'    数据不足，跳过')
             continue
 
+        # 数据完整性: 计算最新一期指标时, 收盘/PE/国债三者都要覆盖到同一交易日
+        latest_date = merged['date'].max()
+        bond_last = bond_df.index.max()
+        pe_last = source_pe_last.get(display_name) or meta['pe_last']
+        pe_freq = '月频' if (meta['pe_freq_days'] or 0) >= 20 else '日频'
+        close_last = pd.Timestamp(meta['close_last']) if meta['close_last'] else latest_date
+        fut_last = fut_dates.max() if fut_dates is not None and len(fut_dates) else None
+        reasons = []
+        if pe_last and latest_date < pd.Timestamp(pe_last):
+            reasons.append(f"PE已更新至{pe_last}，但收盘价/国债仅到{latest_date.strftime('%Y-%m-%d')}，最新一期未纳入")
+        if fut_last is not None and close_last < fut_last:
+            n_miss = int((fut_dates > close_last).sum())
+            reasons.append(f"现货行情仅到{close_last.strftime('%Y-%m-%d')}"
+                           f"（期货日历已到{fut_last.strftime('%Y-%m-%d')}，缺{n_miss}个交易日）")
+        if bond_last < close_last:
+            reasons.append(f"国债收益率仅到{bond_last.strftime('%Y-%m-%d')}")
+        data_status = {
+            'latest_date': latest_date.strftime('%Y-%m-%d'),
+            'close_last': meta['close_last'],
+            'pe_last': pe_last,
+            'bond_last': bond_last.strftime('%Y-%m-%d'),
+            'futures_last': fut_last.strftime('%Y-%m-%d') if fut_last is not None else None,
+            'pe_frequency': pe_freq,
+            'stale': bool(reasons),
+            'detail': '；'.join(reasons),
+        }
+        if reasons:
+            print(f'    [数据缺失] ' + data_status['detail'])
+
         # 股债性价比 = 1/PE_TTM * 100 - 国债收益率(%)
         merged['stock_bond_spread'] = (1.0 / merged['pe_ttm']) * 100 - merged['bond_yield']
         # 格雷厄姆指数 = (1/PE_TTM * 100) / 国债收益率(%)
@@ -153,6 +221,7 @@ def main():
         merged = merged.reset_index()
 
         all_data[display_name] = merged
+        all_status[display_name] = data_status
 
     if not all_data:
         print('\n无有效数据，退出')
@@ -162,9 +231,10 @@ def main():
     print('\n[3/3] 保存数据文件...')
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    def _build_json(df, metric_key, metric_col, percentile_col):
+    def _build_json(df, metric_key, metric_col, percentile_col, data_status):
         return {
             'dates': df['date'].dt.strftime('%Y-%m-%d').tolist(),
+            'data_status': data_status,
             metric_key: df[metric_col].round(4).tolist(),
             'percentile': df[percentile_col].round(4).tolist(),
             'close': df['close'].round(2).tolist(),
@@ -180,8 +250,8 @@ def main():
     stock_bond = {}
     graham = {}
     for display_name, df in all_data.items():
-        stock_bond[display_name] = _build_json(df, 'stock_bond_spread', 'stock_bond_spread', 'stock_bond_percentile')
-        graham[display_name] = _build_json(df, 'graham_index', 'graham_index', 'graham_percentile')
+        stock_bond[display_name] = _build_json(df, 'stock_bond_spread', 'stock_bond_spread', 'stock_bond_percentile', all_status[display_name])
+        graham[display_name] = _build_json(df, 'graham_index', 'graham_index', 'graham_percentile', all_status[display_name])
 
     path_sb_js = os.path.join(DATA_DIR, 'stock_bond_data.js')
     with open(path_sb_js, 'w', encoding='utf-8') as f:

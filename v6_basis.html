@@ -41,6 +41,9 @@
   .badge.flat  { background:#eceff1; color:#607d8b; }
   .badge.short { background:#e8f5e9; color:#2e7d32; }
   .realtime-status { font-size:0.78rem; color:#999; font-weight:400; margin-left:6px; }
+  .data-status { padding:10px 14px; border-radius:8px; font-size:0.85rem; margin-bottom:12px; border:1px solid; line-height:1.7; }
+  .data-status.warn { background:#fff3e0; border-color:#ffb74d; color:#e65100; font-weight:600; }
+  .data-status.ok { background:#f1f8e9; border-color:#c5e1a5; color:#2e7d32; }
   .rt-source { font-size:0.75rem; color:#aaa; margin-top:8px; line-height:1.6; }
   .kpi-grid {
     display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:14px;
@@ -102,6 +105,7 @@
   <!-- 当前持仓建议：当前持仓期（左） + 若今日调仓（右） -->
   <div class="chart-card" style="margin-bottom:24px;">
     <h3>当前持仓建议 <span id="realtime-status" class="realtime-status"></span></h3>
+    <div id="data-status" class="data-status ok" style="display:none;"></div>
     <div class="dual-grid">
       <div class="pos-banner cur">
         <div class="pos-head">

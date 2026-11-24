@@ -116,6 +116,7 @@ def main():
             'price_time': q.get('time'),
             'source': q.get('source'),
             'blocks': A._block_snapshot(feat, t),
+            'data_status': feat['data_status'],
             'horizons': pred,
         }
         ok += 1

@@ -84,6 +84,19 @@
         (SNAP.indices[state.idx] ? (SNAP.indices[state.idx].price_time || '') : '') + '）</span>';
     }
     h += '<span><i class="dot"></i>收盘数据截止 ' + DATA_DATE + '</span>';
+    var _ds = (LIVE && SNAP.indices[state.idx] && SNAP.indices[state.idx].data_status) ||
+      byIdx(state.idx).data_status || {};
+    var _ref = _ds.price_last || DATA_DATE;
+    var _miss = [];
+    if (_ds.margin_last && _ds.margin_last < _ref) _miss.push('两融 ' + _ds.margin_last);
+    if (_ds.qvix_last && _ds.qvix_last < _ref) _miss.push('50ETF波指 ' + _ds.qvix_last);
+    if (_miss.length) {
+      h += '<span style="color:#e65100;font-weight:600;">数据缺失：' + _miss.join('、') +
+        '（已按截止日剔除，不参与相似度）</span>';
+    }
+    if (_ds.macro_last) {
+      h += '<span style="color:#78909c;">宏观(月频) ' + _ds.macro_last + '</span>';
+    }
     h += '<span>模型生成 ' + D.updated + '</span>';
     h += '<span>相似日样本 ' + (byIdx(state.idx).n_days || 0) + ' 个交易日（自 ' +
       (byIdx(state.idx).first_date || '') + '）</span>';
