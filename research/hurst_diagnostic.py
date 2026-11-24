@@ -15,7 +15,9 @@ import numpy as np
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-XLSX = os.path.join(HERE, "data", "指数行情序列.xlsx")
+ROOT = os.path.dirname(HERE)
+OUT_DIR = os.path.join(HERE, "outputs")
+XLSX = os.path.join(ROOT, "data", "指数行情序列.xlsx")
 
 MA = 200
 CONF_DAYS = 5
@@ -210,7 +212,7 @@ def main():
 
     out = pd.DataFrame({"close": close, "H250_rs": H250, "H250_dfa": H250d,
                         "H150_rs": H150, "state": state}).dropna(subset=["H250_rs"])
-    csv = os.path.join(HERE, "data", "hurst_diag.csv")
+    csv = os.path.join(OUT_DIR, "hurst_diag.csv")
     out.to_csv(csv, encoding="utf-8-sig")
     print("\n已保存: %s (%d行)" % (csv, len(out)))
 

@@ -51,41 +51,41 @@ jobs:
 
       # fetch_rsrs.py 先运行：更新xlsx（OHLCV + PE_TTM + 国债）+ 输出RSRS回测数据
       - name: 更新xlsx并生成RSRS数据
-        run: python fetch_rsrs.py
+        run: python scripts/fetch_rsrs.py
 
       # fetch_data.py 后运行：从已更新的xlsx读取数据，输出股债性价比和格雷厄姆指数
       - name: 生成股债性价比和格雷厄姆指数数据
-        run: python fetch_data.py
+        run: python scripts/fetch_data.py
 
       # fetch_ma200.py：从已更新的xlsx读取中证500/中证1000现货收盘，输出MA200择时活数据
       - name: 生成MA200择时活数据
-        run: python fetch_ma200.py
+        run: python scripts/fetch_ma200.py
 
       # gen_ma200_backtest.py：akshare拉IC/IM股指期货→重建近月净值→回测曲线延伸到最新交易日
       - name: 生成MA200回测曲线(动态延伸)
-        run: python gen_ma200_backtest.py
+        run: python scripts/gen_ma200_backtest.py
 
       # fetch_v6_futures.py：中金所月度归档 → IH/IF/IC/IM 全部月份合约日收盘（增量）。
       # 数据源对海外IP可能间歇性拦截, 失败时继续使用仓库内已有 csv, 不阻断部署。
       - name: 更新V6股指期货全月份合约数据
         continue-on-error: true
-        run: python fetch_v6_futures.py
+        run: python scripts/fetch_v6_futures.py
 
       # gen_v6_backtest.py：按《V6策略说明文档.md》回测 → 输出 v6_backtest.js / v6_live.js
       - name: 生成V6基差轮动回测与实时持仓数据
-        run: python gen_v6_backtest.py
+        run: python scripts/gen_v6_backtest.py
 
       # fetch_etf_nt.py：上交所/深交所份额 + 新浪价格/持有人 → data/etf_nt_data.js
       # 接口对海外IP可能间歇性拦截, 失败时沿用仓库内已有数据, 不阻断部署
       - name: 更新ETF国家队看板数据
         continue-on-error: true
-        run: python fetch_etf_nt.py
+        run: python scripts/fetch_etf_nt.py
 
       # fetch_sentiment.py：akshare 两融余额/融资净买入 + 50ETF 波指 → data/情绪数据序列.xlsx
       # 供 "历史上的今天" 的情绪维度使用; 失败时沿用旧 sheet, 不阻断部署
       - name: 更新两融与波指情绪数据
         continue-on-error: true
-        run: python fetch_sentiment.py
+        run: python scripts/fetch_sentiment.py
 
       # 隐含波动率/fetch_iv.py：中金所 MO 期权结算价 → Black-76 反算中证1000 IV（增量）。
       # 首次运行回填 2022-07 起全部月份，之后只重算最近 3 个月；失败不阻断部署。
@@ -104,7 +104,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/
-          git add fetch_rsrs.py
+          git add scripts/fetch_rsrs.py
           git add "隐含波动率/iv_history.csv"
           git add "历史上的今天/"
           git diff --cached --quiet || git commit -m "chore: 每日数据更新 $(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M') [skip ci]"

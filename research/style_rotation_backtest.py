@@ -30,8 +30,10 @@ import numpy as np
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-IDX = os.path.join(HERE, "data", "指数行情序列.xlsx")
-OUT_CSV = os.path.join(HERE, "data", "style_rotation_result.csv")
+ROOT = os.path.dirname(HERE)
+OUT_DIR = os.path.join(HERE, "outputs")
+IDX = os.path.join(ROOT, "data", "指数行情序列.xlsx")
+OUT_CSV = os.path.join(OUT_DIR, "style_rotation_result.csv")
 
 SMALL, BIG = "000852.SH", "000300.SH"
 COST = 0.0002

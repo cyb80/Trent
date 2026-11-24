@@ -12,8 +12,9 @@ import os
 import subprocess
 import sys
 
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_DIR, 'data')
+SCRIPTS_DIR = os.path.join(PROJECT_DIR, 'scripts')
 XLSX_PATH = os.path.join(DATA_DIR, '指数行情序列.xlsx')
 SCRIPTS = ['fetch_rsrs.py', 'fetch_data.py']
 OUT_FILES = ['rsrs_data.js', 'stock_bond_data.js', 'graham_data.js']
@@ -78,7 +79,7 @@ def main():
         check(f'xlsx 文件大小 ({size:,} bytes)', size > 10_000)
 
     for fn in SCRIPTS:
-        check(f'{fn} 存在', os.path.exists(os.path.join(PROJECT_DIR, fn)))
+        check(f'{fn} 存在', os.path.exists(os.path.join(SCRIPTS_DIR, fn)))
 
     if fail_count > 0:
         print('\n环境检查未通过，中止测试。')
@@ -86,7 +87,7 @@ def main():
 
     # ===== Step 1: 运行 fetch_rsrs.py =====
     print('\n[1/3] 运行 fetch_rsrs.py ...')
-    rsrs_path = os.path.join(PROJECT_DIR, 'fetch_rsrs.py')
+    rsrs_path = os.path.join(SCRIPTS_DIR, 'fetch_rsrs.py')
     result = subprocess.run(
         [sys.executable, rsrs_path],
         capture_output=True, text=True, cwd=PROJECT_DIR, timeout=600
@@ -116,7 +117,7 @@ def main():
 
     # ===== Step 2: 运行 fetch_data.py =====
     print('\n[2/3] 运行 fetch_data.py ...')
-    data_path = os.path.join(PROJECT_DIR, 'fetch_data.py')
+    data_path = os.path.join(SCRIPTS_DIR, 'fetch_data.py')
     result = subprocess.run(
         [sys.executable, data_path],
         capture_output=True, text=True, cwd=PROJECT_DIR, timeout=300

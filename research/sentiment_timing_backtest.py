@@ -32,8 +32,10 @@ import numpy as np
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SENT = os.path.join(HERE, "data", "情绪数据序列.xlsx")
-OUT_CSV = os.path.join(HERE, "data", "sentiment_timing_result.csv")
+ROOT = os.path.dirname(HERE)
+OUT_DIR = os.path.join(HERE, "outputs")
+SENT = os.path.join(ROOT, "data", "情绪数据序列.xlsx")
+OUT_CSV = os.path.join(OUT_DIR, "sentiment_timing_result.csv")
 
 COST = 0.0002          # 单边成本 2bp
 ANNUAL = 242

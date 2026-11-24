@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(HERE, "data")
 FUT_CSV = os.path.join(DATA_DIR, "v6_futures.csv")
 XLSX = os.path.join(DATA_DIR, "指数行情序列.xlsx")

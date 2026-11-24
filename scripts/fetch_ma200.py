@@ -17,7 +17,8 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(ROOT, 'data')
 XLSX_PATH = os.path.join(DATA_DIR, '指数行情序列.xlsx')
 FUT_CSV = os.path.join(DATA_DIR, 'ma200_futures.csv')
 

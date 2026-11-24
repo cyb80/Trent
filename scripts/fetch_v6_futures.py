@@ -22,7 +22,7 @@ from datetime import datetime
 import pandas as pd
 import requests
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(HERE, "data")
 OUT = os.path.join(DATA_DIR, "v6_futures.csv")
 

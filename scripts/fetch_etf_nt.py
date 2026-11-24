@@ -28,7 +28,7 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 UNIVERSE_PATH = os.path.join(DATA_DIR, "etf_nt_universe.json")
 SHARE_PATH = os.path.join(DATA_DIR, "etf_nt_share.csv")

@@ -17,11 +17,11 @@ import glob, re, os
 
 # 数据路径：优先使用环境变量(MA200_FUT_DIR / MA200_IDX_FILE)覆盖，
 # 否则回退到本机开发路径(若存在)，最后回退到仓库相对 data/ 目录，保证跨环境可移植。
-_PKG_DIR = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _LOCAL_FUT = r"D:\ipynb\长期数据\sqlite\股指期货_期权"
 _LOCAL_IDX = r"D:\ipynb\长期数据\sqlite\指数行情序列.xlsx"
-_REPO_IDX  = os.path.join(_PKG_DIR, "data", "指数行情序列.xlsx")
-FUT_DIR  = os.environ.get("MA200_FUT_DIR") or (_LOCAL_FUT if os.path.isdir(_LOCAL_FUT) else os.path.join(_PKG_DIR, "data"))
+_REPO_IDX  = os.path.join(_ROOT, "data", "指数行情序列.xlsx")
+FUT_DIR  = os.environ.get("MA200_FUT_DIR") or (_LOCAL_FUT if os.path.isdir(_LOCAL_FUT) else os.path.join(_ROOT, "data"))
 IDX_FILE = os.environ.get("MA200_IDX_FILE") or (_LOCAL_IDX if os.path.exists(_LOCAL_IDX) else _REPO_IDX)
 EVAL_START = pd.Timestamp("2023-05-04")
 EVAL_END   = pd.Timestamp("2026-04-20")

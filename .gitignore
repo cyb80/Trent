@@ -12,4 +12,8 @@ Thumbs.db
 logs/
 
 # 本地研报参考资料
-研报/
+docs/研报/
+
+# 本地临时产物
+.screenshots/
+.trae-html-share-packages/

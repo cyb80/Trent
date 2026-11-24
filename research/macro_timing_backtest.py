@@ -27,9 +27,11 @@ import numpy as np
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MACRO = os.path.join(HERE, "data", "宏观数据序列.xlsx")
-IDX = os.path.join(HERE, "data", "指数行情序列.xlsx")
-OUT_CSV = os.path.join(HERE, "data", "macro_timing_result.csv")
+ROOT = os.path.dirname(HERE)
+OUT_DIR = os.path.join(HERE, "outputs")
+MACRO = os.path.join(ROOT, "data", "宏观数据序列.xlsx")
+IDX = os.path.join(ROOT, "data", "指数行情序列.xlsx")
+OUT_CSV = os.path.join(OUT_DIR, "macro_timing_result.csv")
 
 COST = 0.0002          # 单边成本 2bp
 ANNUAL = 242

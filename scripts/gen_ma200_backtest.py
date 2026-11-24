@@ -30,7 +30,8 @@ import pandas as pd
 import backtest_trend_methods as bt  # 复用纯逻辑: estimate_third_friday / build_calendar /
                                      # select_near_month / product_return / build_trend / 常量
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(ROOT, 'data')
 XLSX_PATH = os.path.join(DATA_DIR, '指数行情序列.xlsx')
 STATE_PATH = os.path.join(DATA_DIR, 'ma200_futures.csv')
 OUT_PATH = os.path.join(DATA_DIR, 'ma200_backtest.js')

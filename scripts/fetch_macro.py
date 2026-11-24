@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import akshare as ak
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(HERE, "data", "宏观数据序列.xlsx")
 
 
