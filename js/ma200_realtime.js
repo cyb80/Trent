@@ -65,6 +65,15 @@
     }
     return d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate());
   }
+  function bjFromMs(ms) {
+    var now = new Date();
+    return new Date(ms + (now.getTimezoneOffset() + 480) * 60000);
+  }
+  function txQuoteDate(value) {
+    var digits = String(value || "").replace(/\D/g, "");
+    if (digits.length < 8) return null;
+    return digits.slice(0, 4) + "-" + digits.slice(4, 6) + "-" + digits.slice(6, 8);
+  }
   function avg(a) {
     var s = 0;
     for (var i = 0; i < a.length; i++) s += a[i];
@@ -422,11 +431,14 @@
         .then(function (j) {
           var d = j && j.data;
           if (!d || !d.f43 || d.f43 <= 0) return { error: "无有效数据" };
+          var ts = d.f86 ? (d.f86 < 1e12 ? d.f86 * 1000 : d.f86) : null;
+          var qd = ts ? fmtDate(bjFromMs(ts)) : null;
           return {
             price: d.f43,
             high: d.f44 || d.f43,
             low: d.f45 || d.f43,
-            time: Date.now(),
+            time: ts,
+            quoteDate: qd,
           };
         })
         .catch(function (e) {
@@ -455,7 +467,7 @@
           sc.remove();
           return;
         }
-        resolve({ price: price, time: Date.now() });
+        resolve({ price: price, time: null, quoteDate: txQuoteDate(f[30]) });
         sc.remove();
       };
       sc.onerror = function () {
@@ -466,10 +478,10 @@
   }
   function fetchRT(leg) {
     return fetchEM(SECID[leg], leg).then(function (em) {
-      if (em && em.price > 0) return em;
+      if (em && em.price > 0 && em.quoteDate) return em;
       return withTimeout(fetchTX(TXCOD[leg], leg), 10000, leg).then(
         function (tx) {
-          return tx && tx.price > 0 ? tx : em || tx || null;
+          return tx && tx.price > 0 && tx.quoteDate ? tx : em || tx || null;
         },
       );
     });
@@ -483,9 +495,9 @@
   var lastSource = "";
 
   function recompute() {
-    var now = new Date();
-    var curMin = now.getHours() * 60 + now.getMinutes();
-    var doneTime = fmtTime(now);
+    var bj = bjDate();
+    var curMin = bj.getHours() * 60 + bj.getMinutes();
+    var doneTime = fmtTime(bj);
 
     renderDataStatus();
     if (DSTATUS.stale) {
@@ -516,14 +528,20 @@
     ).then(function (list) {
       var snaps = {};
       var allOk = true,
-        source = "";
+        source = "",
+        usingRealtime = false;
       list.forEach(function (item) {
         var leg = item.leg,
           rt = item.rt;
         var closes = live.spot[leg].close.slice();
-        if (rt && rt.price > 0) {
+        var fileLast = live.spot[leg].dates[live.spot[leg].dates.length - 1];
+        var todayStr = fmtDate(bjDate());
+        if (rt && rt.price > 0 && rt.quoteDate === todayStr && fileLast < todayStr) {
           closes.push(rt.price);
           source = source || "实时行情";
+          usingRealtime = true;
+        } else if (fileLast === todayStr) {
+          source = source || "数据文件已含今日收盘";
         } else {
           allOk = false;
         }
@@ -537,7 +555,7 @@
             : curMin >= 900
               ? "已收盘(用今日实时收盘)"
               : "盘中实时估算";
-        renderPosition(snaps, stage + " · 实时数据");
+        renderPosition(snaps, stage + " · " + (usingRealtime ? "实时数据" : "数据文件收盘"));
         document.getElementById("rt-source").textContent =
           "作为当日收盘的实时价: IC=" +
           snaps.IC.close.toFixed(2) +
@@ -551,7 +569,7 @@
           "实时行情获取失败，已回退到最新收盘快照(上一步)。" +
           list
             .map(function (x) {
-              return x.leg + ":" + x.rt.error;
+              return x.leg + ":" + (x.rt && x.rt.error ? x.rt.error : "非今日行情");
             })
             .join(" ");
       }
@@ -847,8 +865,8 @@
       "<tr><td>弱</td><td>弱</td><td>—</td><td>12.5% / 12.5%（0.25倍）</td></tr>" +
       "</tbody></table>" +
       "<p>低波动：近月净收益 60 日波动率低于其 " +
-      (live.median_win || 6) +
-      " 个月中位数即视为低波动。不使用贴水权重微调。</p>" +
+      (live.median_win || 252) +
+      " 个交易日（约 12 个月）的中位数即视为低波动。实时估算使用现货指数收益近似。</p>" +
       "<h4>回测口径</h4>" +
       "<p>趋势状态在连续 " +
       (live.confirm_days || 5) +
@@ -865,7 +883,7 @@
       ["均线", "趋势判断均线窗口", live.ma + " 日"],
       ["趋势确认", "状态连续成立天数", live.confirm_days + " 天"],
       ["波动率窗口", "近月净收益波动率计算窗口", live.vol60 + " 日"],
-      ["中位数窗口", "判断低波动的滚动中位数窗口", live.median_win + " 月"],
+      ["中位数窗口", "判断低波动的滚动中位数窗口", live.median_win + " 个交易日（约12个月）"],
       ["单边成本", "每次权重/换月成本（单边）", "2bp（0.02%）"],
       ["信号滞后", "确认状态后调整仓位", "1 天（次日）"],
       ["换月规则", "近月合约切换", "提前 5 交易日"],
@@ -897,6 +915,7 @@
       DSTATUS.spotLast +
       " | 期货截止 " +
       DSTATUS.futuresLast +
+      " | 年化/波动按242日" +
       (DSTATUS.stale ? " | 数据缺失 " + DSTATUS.missingDays + " 个交易日" : "");
   }
 

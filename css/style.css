@@ -206,3 +206,42 @@ footer {
     padding: 20px 0 32px;
     border-top: 1px solid #e8e8e8;
 }
+
+@media (max-width: 760px) {
+    .container {
+        padding: 14px;
+    }
+
+    header .container {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    header nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 12px;
+    }
+
+    header nav a {
+        margin-left: 0;
+        font-size: 0.82rem;
+    }
+
+    .hero {
+        padding: 36px 0 24px;
+    }
+
+    .hero h2 {
+        font-size: 1.55rem;
+    }
+
+    .page-title {
+        padding: 18px 0 14px;
+    }
+
+    .cards {
+        grid-template-columns: 1fr;
+    }
+}

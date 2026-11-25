@@ -65,6 +65,7 @@ def verify_js(path, key_name, required_indices=None):
 
 def main():
     global pass_count, fail_count
+    dry_run = '--dry-run' in sys.argv
     print('=' * 60)
     print('量化择时数据管道 — 本地模拟测试')
     print(f'项目目录: {PROJECT_DIR}')
@@ -84,6 +85,11 @@ def main():
     if fail_count > 0:
         print('\n环境检查未通过，中止测试。')
         sys.exit(1)
+
+    if dry_run:
+        print('\n[--dry-run] 只检查输入文件，不执行数据抓取/生成脚本。')
+        print(f'结果: {pass_count}/{pass_count + fail_count} 通过, {fail_count} 失败')
+        return 0 if fail_count == 0 else 1
 
     # ===== Step 1: 运行 fetch_rsrs.py =====
     print('\n[1/3] 运行 fetch_rsrs.py ...')

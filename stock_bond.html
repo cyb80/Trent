@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>股债性价比 - 量化择时</title>
 <link rel="stylesheet" href="css/style.css">
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="js/echarts.min.js"></script>
 <style>
 .chart-container { height: 500px; }
 .data-status { padding:10px 14px; border-radius:8px; font-size:0.85rem; margin-bottom:14px; border:1px solid; line-height:1.7; }
@@ -99,6 +99,7 @@
         formatter: function(params) {
           var s = params[0].axisValue + '<br/>';
           params.forEach(function(p) {
+            if (p.value === null || p.value === undefined) return;
             if (p.seriesName === pctName) {
               s += p.marker + ' ' + p.seriesName + ': ' + (p.value * 100).toFixed(1) + '%<br/>';
             } else if (p.seriesName === closeName) {

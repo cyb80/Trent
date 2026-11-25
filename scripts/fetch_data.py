@@ -26,6 +26,8 @@ INDEX_CONFIG = [
     ('000852', '中证1000'),
 ]
 
+MIN_PERCENTILE_OBS = 24  # 5年分位至少需要两年月频样本
+
 
 def calc_rolling_percentile(series, window_years=5):
     """计算滚动N年历史分位数"""
@@ -34,7 +36,7 @@ def calc_rolling_percentile(series, window_years=5):
         current_date = series.index[i]
         start_date = current_date - pd.DateOffset(years=window_years)
         window = series[(series.index >= start_date) & (series.index <= current_date)]
-        if len(window) >= 2:
+        if len(window) >= MIN_PERCENTILE_OBS:
             rank = window.rank(ascending=True, method='min').iloc[-1]
             result.iloc[i] = (rank - 1) / (len(window) - 1)
     return result
@@ -233,11 +235,16 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
 
     def _build_json(df, metric_key, metric_col, percentile_col, data_status):
+        percentile = df[percentile_col].round(4)
+        percentile_values = [
+            None if pd.isna(v) else float(v)
+            for v in percentile
+        ]
         return {
             'dates': df['date'].dt.strftime('%Y-%m-%d').tolist(),
             'data_status': data_status,
             metric_key: df[metric_col].round(4).tolist(),
-            'percentile': df[percentile_col].round(4).tolist(),
+            'percentile': percentile_values,
             'close': df['close'].round(2).tolist(),
             'latest_date': df['date'].max().strftime('%Y-%m-%d'),
             f'latest_{metric_key}': round(float(df[metric_col].iloc[-1]), 4),
@@ -245,7 +252,7 @@ def main():
             'latest_close': float(df['close'].iloc[-1].round(2)),
             'latest_pe': round(float(df['pe_ttm'].iloc[-1]), 2),
             'latest_bond_yield': round(float(df['bond_yield'].iloc[-1]), 4),
-            'data_source': '数据来源: 指数行情序列.xlsx (OHLCV:东方财富; PE:乐股乐股; 国债:investing.com)',
+            'data_source': '数据来源: 指数行情序列.xlsx (OHLCV:东方财富; PE:乐咕乐股; 国债:investing.com)',
         }
 
     stock_bond = {}

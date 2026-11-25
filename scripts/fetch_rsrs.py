@@ -446,6 +446,7 @@ def update_xlsx_from_akshare():
     # ---- 2. 更新PE_TTM ----
     print('  --- PE_TTM更新 ---')
     pe_last = {}
+    pe_fail = []
     for display_name, cfg in TARGET_INDICES.items():
         sheet_key = cfg['sheet_key']
         sheet_name = None
@@ -470,12 +471,15 @@ def update_xlsx_from_akshare():
             if 'PE_TTM' not in dict_data[sheet_name].columns or before_cnt != after_cnt:
                 updated = True
             print(f'  [{display_name}] PE_TTM: {before_cnt}→{after_cnt} 条有效, 最新PE日期 {pe_last[display_name]}')
+        else:
+            pe_fail.append(display_name)
         dict_data[sheet_name] = df
 
     # ---- 3. 更新国债收益率 ----
     print('  --- 国债收益率更新 ---')
     bond_sheet = '国债收益率'
     bond_last = None
+    bond_fail = False
     bond_data = fetch_bond_yield()
     if bond_data is not None and len(bond_data) > 0:
         bond_last = pd.to_datetime(bond_data.index).max().strftime('%Y-%m-%d')
@@ -493,6 +497,8 @@ def update_xlsx_from_akshare():
         after_cnt = len(dict_data[bond_sheet])
         updated = True
         print(f'  国债收益率: {before_cnt}→{after_cnt} 条')
+    else:
+        bond_fail = True
     if bond_last is None and bond_sheet in dict_data and len(dict_data[bond_sheet]):
         bond_last = pd.to_datetime(dict_data[bond_sheet].index).max().strftime('%Y-%m-%d')
 
@@ -515,18 +521,31 @@ def update_xlsx_from_akshare():
                 except Exception:
                     last_dates[display_name] = None
                 break
+    ohlcv_ok = not ohlc_fail
+    pe_ok = not pe_fail
+    bond_ok = not bond_fail
     status = {
-        'ok': not ohlc_fail,
+        'ok': ohlcv_ok and pe_ok and bond_ok,
+        'ohlcv_ok': ohlcv_ok,
+        'pe_ok': pe_ok,
+        'bond_ok': bond_ok,
         'as_of': (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M'),
         'last_dates': last_dates,
         'pe_last': pe_last,
         'bond_last': bond_last,
+        'pe_failed': pe_fail,
     }
+    details = []
     if ohlc_fail:
         detail = '；'.join(f'{n}: {ohlc_errors.get(n, "未知原因")}' for n in ohlc_fail)
-        status['detail'] = (f'OHLCV数据源全部失败: {detail}。'
-                            f'页面数据可能滞后, 详见运行日志; 晚间20:30定时任务会自动重试')
+        details.append(f'OHLCV数据源全部失败: {detail}')
         status['errors'] = ohlc_errors
+    if pe_fail:
+        details.append('PE更新失败: ' + ','.join(pe_fail))
+    if bond_fail:
+        details.append('国债收益率更新失败')
+    if details:
+        status['detail'] = '；'.join(details) + '；页面数据可能滞后, 详见运行日志'
     status_path = os.path.join(DATA_DIR, 'fetch_status.json')
     with open(status_path, 'w', encoding='utf-8') as f:
         json.dump(status, f, ensure_ascii=False)
@@ -544,6 +563,25 @@ def load_futures_dates():
         return pd.DatetimeIndex(sorted(d.dropna().unique()))
     except Exception:
         return None
+
+
+def load_trade_calendar():
+    """优先使用交易所交易日历，避免依赖上一轮生成的期货 CSV。"""
+    if ak is not None:
+        try:
+            df = ak.tool_trade_date_hist_sina()
+            if df is not None and 'trade_date' in df.columns and len(df):
+                idx = pd.DatetimeIndex(
+                    pd.to_datetime(df['trade_date'], errors='coerce').dropna()
+                ).sort_values()
+                now_bj = datetime.now(timezone.utc) + timedelta(hours=8)
+                # 15:05 前只使用已经收盘的交易日，避免把今天误报成缺失日。
+                if (now_bj.hour, now_bj.minute) < (15, 5):
+                    idx = idx[idx < pd.Timestamp(now_bj.date())]
+                return idx
+        except Exception as e:
+            print(f'  交易日历获取失败, 回退期货日历: {e}')
+    return load_futures_dates()
 
 
 def main():
@@ -570,7 +608,7 @@ def main():
     print(f'成功读取 {len(dict_data)} 个sheet: {list(dict_data.keys())}')
 
     results = {}
-    fut_dates = load_futures_dates()
+    fut_dates = load_trade_calendar()
     for display_name, cfg in TARGET_INDICES.items():
         code = cfg['code']
         sheet_key = cfg['sheet_key']
@@ -680,6 +718,8 @@ def main():
         idx_data = {
             'dates': common_dates_str,
             'data_status': data_status,
+            'annualization': 252,
+            'risk_free': 0.03,
             'benchmark_nav': [round(v, 6) for v in bm_nav.values],
             'strategies': strategies,
             'params': {'N': cfg['N'], 'M': cfg['M'], 'ths': cfg['ths']},

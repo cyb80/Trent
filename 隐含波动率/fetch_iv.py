@@ -312,8 +312,8 @@ def main():
 
     new = pd.DataFrame(rows)
     if cache is not None and not cache.empty:
-        cutoff = date(*start, 1).isoformat()
-        merged = pd.concat([cache[cache["date"] < cutoff], new], ignore_index=True)
+        # 新结果只覆盖成功重算的日期；失败月份不能把旧缓存一起删掉。
+        merged = pd.concat([cache, new], ignore_index=True)
     else:
         merged = new
     merged = merged.drop_duplicates(subset="date", keep="last").sort_values("date").reset_index(drop=True)

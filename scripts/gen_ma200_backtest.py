@@ -62,16 +62,24 @@ def load_spot_from_xlsx():
 
 # ---------- 期货合约拉取 ----------
 def _months(y0, m0, y1, m1):
-    """返回 [(yy,mm), ...] 月份序列, 含首尾。m0/m1 可用负值表示"上月"。"""
+    """返回 [(yy,mm), ...] 月份序列, 含首尾，支持跨年相对月份。"""
+    def norm(y, m):
+        while m <= 0:
+            y, m = y - 1, m + 12
+        while m > 12:
+            y, m = y + 1, m - 12
+        return y, m
+
+    y0, m0 = norm(y0, m0)
+    y1, m1 = norm(y1, m1)
     yy, mm = y0, m0
     out = []
-    while (yy, mm) < (y1, m1):
+    while (yy, mm) <= (y1, m1):
         out.append((yy, mm))
         mm += 1
         if mm > 12:
             mm = 1
             yy += 1
-    out.append((y1, m1))
     return out
 
 
@@ -174,7 +182,6 @@ def incremental_update():
             continue
         cal = pd.DatetimeIndex(pd.to_datetime(cal_days))
         df = near_month_frame(sym, contracts, cal)
-        df = df[df['date'] > last_date.strftime('%Y-%m-%d')]
         if len(df) == 0:
             print('  [增量 %s] %s ... %s 已是最新(%s)' % (sym, cal_days[0], cal_days[-1], last_date.date()))
             continue
@@ -190,15 +197,18 @@ def incremental_update():
         print('  数据已是最新, 无需更新; 截至 %s' % last_date.date())
         return cur
 
-    # 合并各 symbol 的新增行(各自已按 date>last 裁剪, IC/IM 交易日对齐) -> 宽表
+    # 合并各 symbol 的缓冲区和新增行 -> 宽表。
+    # 缓冲区覆盖最近数据，避免只追加新日期而漏掉修订/换月重算。
     app = new_rows[0]
     for df in new_rows[1:]:
         app = app.merge(df, on='date', how='outer')
     app = app.reindex(columns=CSV_COLS)
-    # 新行与旧历史日期不重叠, 直接逐行拼接
-    merged = pd.concat([cur, app], ignore_index=True)
-    merged = merged.sort_values('date')
-    merged = merged[~merged['date'].duplicated(keep='last')]
+    app['date'] = pd.to_datetime(app['date'])
+    # 新值优先，缺失值沿用旧表；这样某一条腿抓取失败时不会把另一条腿
+    # 已落盘的历史数据覆盖成 NaN。
+    merged = app.set_index('date').combine_first(
+        cur.set_index('date')
+    ).sort_index().reset_index()
     merged.to_csv(STATE_PATH, index=False, encoding='utf-8')
     print('  增量更新完成 ->', STATE_PATH, ' 行数:', len(merged))
     return merged
@@ -338,6 +348,7 @@ def write_js(nav):
         'trend_method': '仅200日均线(正确5日确认,信号滞后1日)',
         'confirm_days': 5,
         'signal_lag': NAV_LAG,
+        'annualization': ANNUAL,
         'dates': nav['dates'],
         'strat_nav': nav['strat_nav'],
         'bench_nav': nav['bench_nav'],

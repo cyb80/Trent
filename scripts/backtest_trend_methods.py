@@ -143,24 +143,8 @@ def raw_strong(close, mas):
 
 
 def confirm_trend(raw, conf_days):
-    """连续确认：状态连续 conf_days 天成立才切换，否则维持原状态。"""
-    vals = raw.fillna(0).values
-    state = np.zeros(len(vals))
-    streak = 0
-    cur = None
-    for i, v in enumerate(vals):
-        if cur is None:
-            streak = 1
-            cur = v
-        elif v == cur:
-            streak += 1
-        else:
-            streak = 1
-            cur = v
-        if streak >= conf_days:
-            cur = v  # 状态官方定为当前值
-        state[i] = cur
-    return pd.Series(state, index=raw.index)
+    """连续确认：新方向须连续 conf_days 天成立才切换。"""
+    return confirm_trend_delayed(raw, conf_days)
 
 
 def confirm_trend_delayed(raw, conf_days):

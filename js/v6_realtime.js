@@ -47,6 +47,13 @@
     var d = new Date();
     return new Date(d.getTime() + (d.getTimezoneOffset() + 480) * 60000);
   }
+  function bjFromMs(ms) {
+    var d = new Date();
+    return new Date(ms + (d.getTimezoneOffset() + 480) * 60000);
+  }
+  function quoteDateFromTs(ts) {
+    return ts ? fmtDate(bjFromMs(Number(ts) * 1000)) : null;
+  }
   function daysBetween(d1, d2) {
     return Math.round((Date.parse(d2 + "T00:00:00Z") - Date.parse(d1 + "T00:00:00Z")) / 86400000);
   }
@@ -359,7 +366,7 @@
       return "<tr>"
         + '<td><span class="badge ' + lgCls[a.leg] + '">' + a.leg + "</span></td>"
         + "<td>" + a.prod + "（" + PROD_NAME[a.prod] + "）</td><td>" + a.n + "</td>"
-        + "<td>" + num(a.win, 3) + "</td>"
+        + "<td>" + num(a.win * 100, 1) + "%</td>"
         + '<td class="' + (a.avg >= 0 ? "profit-pos" : "profit-neg") + '">' + num(a.avg * 100, 3) + "</td>"
         + '<td class="' + (a.cum >= 0 ? "profit-pos" : "profit-neg") + '">' + num(a.cum * 100, 2) + "</td>"
         + "</tr>";
@@ -495,7 +502,7 @@
         if (!diff || !diff.length) return null;
         var px = {}, ts = 0;
         diff.forEach(function (x) {
-          px[x.f12] = { p: x.f2, chg: x.f3, name: x.f14 };
+          px[x.f12] = { p: x.f2, chg: x.f3, name: x.f14, ts: x.f124 };
           if (x.f124 > ts) ts = x.f124;
         });
         return { px: px, ts: ts };
@@ -513,14 +520,16 @@
       var q = px && px[ct.c];
       var sp = live.spot[ct.prod];
       var qs = px && px[sp.code];
-      var F = (q && q.p > 0) ? q.p : ct.close;
-      var S = (qs && qs.p > 0) ? qs.p : sp.close;
+      var qFresh = !!(q && q.p > 0 && quoteDateFromTs(q.ts) === todayStr);
+      var spotFresh = !!(qs && qs.p > 0 && quoteDateFromTs(qs.ts) === todayStr);
+      var F = qFresh ? q.p : ct.close;
+      var S = spotFresh ? qs.p : sp.close;
       if (!(F > 0) || !(S > 0)) return;
       var prem = F / S - 1;
       rows.push({
         c: ct.c, prod: ct.prod, expiry: ct.expiry, d: d, F: F, S: S,
         prem: prem, b: prem * FACTOR / d, cand: !!(Tn && ct.expiry >= Tn),
-        rtF: !!(q && q.p > 0), rtS: !!(qs && qs.p > 0)
+        rtF: qFresh, rtS: spotFresh
       });
     });
     rows.sort(function (a, b) { return a.b - b.b; });
@@ -569,11 +578,18 @@
     // ---- ① 当前持仓期 ----
     var lr = live.last_rebalance;
     function pxOf(code, fallback) {
-      for (var i = 0; i < an.rows.length; i++) if (an.rows[i].c === code) return an.rows[i].F;
-      return fallback;
+      for (var i = 0; i < an.rows.length; i++) {
+        if (an.rows[i].c === code) {
+          return { price: an.rows[i].F, live: an.rows[i].rtF };
+        }
+      }
+      return { price: fallback, live: false };
     }
-    var fl = pxOf(lr.long_c, lr.long_close);
-    var fs = pxOf(lr.short_c, lr.short_close);
+    var pL = pxOf(lr.long_c, lr.long_close);
+    var pS = pxOf(lr.short_c, lr.short_close);
+    var fl = pL.price, fs = pS.price;
+    var flMark = pL.live ? "" : "<span style='color:#bbb'>*</span>";
+    var fsMark = pS.live ? "" : "<span style='color:#bbb'>*</span>";
     // long_close0/short_close0 = 调仓日 T 收盘; long_close/short_close = 数据文件最新收盘
     var c0L = lr.long_close0 > 0 ? lr.long_close0 : lr.long_close;
     var c0S = lr.short_close0 > 0 ? lr.short_close0 : lr.short_close;
@@ -590,12 +606,12 @@
       "持仓期 " + lr.T + " → " + lr.Tn + "（预计下次调仓，已持有 " + lr.n_days + " 个交易日）";
     document.querySelector("#cur-table tbody").innerHTML =
       "<tr><td class='l'><b>多头腿</b></td><td><b>" + lr.long_c + "</b></td><td>" + num(lr.long_b, 2) + "%</td>"
-      + "<td>" + num(c0L, 1) + "</td><td>" + num(fl, 1) + "</td>"
+      + "<td>" + num(c0L, 1) + "</td><td>" + num(fl, 1) + flMark + "</td>"
       + "<td class='" + (cumL === null ? "" : (cumL >= 0 ? "profit-pos" : "profit-neg")) + "'>"
       + (cumL === null ? "-" : num(cumL * 100, 2) + "%") + "</td>"
       + "<td>" + legTag(lr.open_l) + "</td></tr>"
       + "<tr><td class='l'><b>空头腿</b></td><td><b>" + lr.short_c + "</b></td><td>" + num(lr.short_b, 2) + "%</td>"
-      + "<td>" + num(c0S, 1) + "</td><td>" + num(fs, 1) + "</td>"
+      + "<td>" + num(c0S, 1) + "</td><td>" + num(fs, 1) + fsMark + "</td>"
       + "<td class='" + (cumS === null ? "" : (cumS >= 0 ? "profit-pos" : "profit-neg")) + "'>"
       + (cumS === null ? "-" : num(cumS * 100, 2) + "%") + "</td>"
       + "<td>" + legTag(lr.open_s) + "</td></tr>";
@@ -638,26 +654,42 @@
 
   var lastLive = null, lastStage = "", lastSrc = "";
   function refresh(stageText, done) {
+    function fallback(message) {
+      var todayStr = fmtDate(bjNow());
+      lastLive = analyse(todayStr, null);
+      renderLive(lastLive, stageText + "（实时行情不可用）", message);
+      if (done) done();
+    }
     fetchAll().then(function (res) {
       var todayStr = fmtDate(bjNow());
-      if (!res) {
-        lastLive = analyse(todayStr, null);
-        renderLive(lastLive, stageText + "（实时行情不可用）",
-          "东方财富接口未返回数据，已回退到数据文件最新收盘价。");
+      var hasTodayQuote = res && res.px && Object.keys(res.px).some(function (code) {
+        return quoteDateFromTs(res.px[code].ts) === todayStr;
+      });
+      if (!hasTodayQuote) {
+        fallback("东方财富未返回今日行情，已回退到数据文件最新收盘价。");
       } else {
         lastLive = analyse(todayStr, res.px);
         var qtime = res.ts
           ? fmtTime(new Date(res.ts * 1000 + (new Date().getTimezoneOffset() + 480) * 60000))
           : "-";
         renderLive(lastLive, stageText, "行情时间 " + qtime + "。");
+        if (done) done();
       }
-      if (done) done();
+    }).catch(function (e) {
+      fallback("实时行情请求异常，已回退到数据文件最新收盘价。" +
+        (e && e.message ? " " + e.message : ""));
     });
   }
 
   function loop() {
     var bj = bjNow(), m = bj.getHours() * 60 + bj.getMinutes(), ph = phaseOf(m);
     var secsLeft = Math.max(60000 - bj.getSeconds() * 1000 - bj.getMilliseconds(), 5000);
+    if (bj.getDay() === 0 || bj.getDay() === 6) {
+      lastLive = analyse(fmtDate(bj), null);
+      renderLive(lastLive, "非交易日", "周末使用数据文件最新收盘价，不请求实时行情。");
+      setTimeout(loop, 60 * 60 * 1000);
+      return;
+    }
     if (ph === "am" || ph === "pm") {
       refresh(ph === "am" ? "盘中实时估算（上午）" : "盘中实时估算（下午）");
       setTimeout(loop, secsLeft);

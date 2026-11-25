@@ -111,7 +111,7 @@ def main():
         print('[错误] xlsx不存在:', XLSX_PATH)
         return 1
 
-    live = {'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+    live = {'generated_at': datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S'),
             'ma': MA, 'confirm_days': CONF_DAYS, 'vol60': VOL60, 'median_win': MED_WIN,
             'latest_date': None, 'spot': {}, 'snap': {}}
 

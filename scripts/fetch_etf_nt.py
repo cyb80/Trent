@@ -33,6 +33,7 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 UNIVERSE_PATH = os.path.join(DATA_DIR, "etf_nt_universe.json")
 SHARE_PATH = os.path.join(DATA_DIR, "etf_nt_share.csv")
 PRICE_PATH = os.path.join(DATA_DIR, "etf_nt_price.csv")
+PRICE_META_PATH = os.path.join(DATA_DIR, "etf_nt_price.meta.json")
 HOLDER_PATH = os.path.join(DATA_DIR, "etf_nt_holder.json")
 OUT_PATH = os.path.join(DATA_DIR, "etf_nt_data.js")
 
@@ -45,6 +46,7 @@ INDEX_ETFS = {"510300": "沪深300ETF", "510500": "中证500ETF", "512100": "中
 LOOKBACK_DAYS = 400     # 增量模式下无历史时默认回看的日历天数
 HISTORY_START = "2012-01-04"   # 上交所占份额接口最早可查日 (2011-12-30 及更早返回空)
 PRICE_HISTORY_BARS = 6000      # 初始化时东方财富取全历史(足够覆盖全部上市期)
+PRICE_SCHEMA = {"adjust": "none"}
 REQUEST_DELAY = 0.25
 MAX_RETRIES = 3
 SSE_WORKERS = 6         # 上交所历史份额并发线程数
@@ -216,7 +218,8 @@ def fetch_em_kline(code, datalen):
     """东方财富日 K 备源。"""
     secid = ("1." if is_sh(code) else "0.") + str(code)
     url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-    r = http_get(url, params={"secid": secid, "klt": "101", "fqt": "1",
+    # 不复权价格避免增量追加时旧数据与新复权基准混用。
+    r = http_get(url, params={"secid": secid, "klt": "101", "fqt": "0",
                               "fields1": "f1,f2,f3,f4,f5,f6",
                               "fields2": "f51,f53", "beg": "0", "end": "20500101",
                               "lmt": str(datalen)}, timeout=20)
@@ -466,7 +469,17 @@ def collect_prices(universe, datalen=None):
     df = read_csv(PRICE_PATH, PRICE_COLS)
     last = df["date"].max() if not df.empty else None
     gap = (now_bjt().date() - pd.to_datetime(last).date()).days if last else LOOKBACK_DAYS
-    n = datalen or max(gap + 10, 15)
+    schema_ok = False
+    if os.path.exists(PRICE_META_PATH):
+        try:
+            with open(PRICE_META_PATH, encoding="utf-8") as f:
+                schema_ok = json.load(f).get("adjust") == PRICE_SCHEMA["adjust"]
+        except Exception:
+            schema_ok = False
+    # 从不复权切换时，必须一次性重拉历史，避免旧复权基准与新数据混用。
+    if not schema_ok:
+        df = pd.DataFrame(columns=PRICE_COLS)
+    n = PRICE_HISTORY_BARS if (datalen == PRICE_HISTORY_BARS or not schema_ok) else max(gap + 10, 15)
     print(f"[价格] 每只取最近 {n} 条日K (CSV 最新 {last})")
     rows = []
     for i, u in enumerate(universe, 1):
@@ -481,6 +494,8 @@ def collect_prices(universe, datalen=None):
             print(f"  {i}/{len(universe)}")
         time.sleep(REQUEST_DELAY)
     write_csv(append_rows(df, rows, PRICE_COLS), PRICE_PATH, PRICE_COLS)
+    with open(PRICE_META_PATH, "w", encoding="utf-8") as f:
+        json.dump(PRICE_SCHEMA, f, ensure_ascii=False)
     print(f"[价格] 写入 {len(rows)} 条")
 
 
@@ -564,7 +579,8 @@ def build_data():
     price_dates = list(pp.index)
 
     # 总份额: 沪市口径 (上交所逐日披露, 历史连续); 深市自部署日起单独累积
-    sh_cols = [c for c in sp.columns if is_sh(c)]
+    universe_codes = {u["code"] for u in universe}
+    sh_cols = [c for c in sp.columns if c in universe_codes and is_sh(c)]
     total = sp[sh_cols].sum(axis=1, min_count=1)
     total_series = [None if pd.isna(v) else round(float(v), 2) for v in total]
     last_total_idx = max((i for i, v in enumerate(total_series) if v is not None), default=-1)
@@ -589,6 +605,19 @@ def build_data():
         if not idx:
             return {"start": 0, "values": []}
         return {"start": idx[0], "values": vals[idx[0]:idx[-1] + 1]}
+
+    def shares_at(code, d):
+        """报告期当日的 ETF 总份额 (取 <= 报告期最近一个披露日)."""
+        if code not in sp.columns:
+            return None
+        col = sp[code]
+        i = sp.index.searchsorted(d, side="right") - 1
+        while i >= 0:
+            v = col.iloc[i]
+            if not pd.isna(v):
+                return float(v)
+            i -= 1
+        return None
 
     etfs = []
     for u in universe:
@@ -632,8 +661,12 @@ def build_data():
 
         nt_latest = [h for h in latest_h if is_nt_holder(h["name"])]
         nt_prev = [h for h in prev_h if is_nt_holder(h["name"])]
-        nt_ratio = round(sum(h["ratio"] for h in nt_latest), 2) if nt_latest else None
         nt_amount = sum(h["amount"] for h in nt_latest) if nt_latest else None
+        report_total = shares_at(code, latest_p["report_date"]) if latest_p else None
+        nt_ratio = (
+            round(nt_amount / (report_total * 1e8) * 100, 2)
+            if (nt_amount and report_total) else None
+        )
         prev_nt_amount = sum(h["amount"] for h in nt_prev) if nt_prev else None
         nt_chg = chg_pct(nt_amount, prev_nt_amount)
         prev_names = {h["name"] for h in prev_h}
@@ -660,19 +693,6 @@ def build_data():
             amt = sum(h["amount"] for h in p.get("holders", []) if is_nt_holder(h["name"]))
             if amt > 0:
                 nt_by_code.setdefault(code, {})[p["report_date"]] = amt
-
-    def shares_at(code, d):
-        """报告期当日的 ETF 总份额 (取 <= 报告期最近一个披露日)."""
-        if code not in sp.columns:
-            return None
-        col = sp[code]
-        i = sp.index.searchsorted(d, side="right") - 1
-        while i >= 0:
-            v = col.iloc[i]
-            if not pd.isna(v):
-                return float(v)
-            i -= 1
-        return None
 
     # 只保留标准半年报/年报期次, 去掉基金成立首期等非标准日期, 避免合计占比出现假跳变
     report_dates = sorted(d for d in {d for m in nt_by_code.values() for d in m}
@@ -702,6 +722,10 @@ def build_data():
         "index": {c: [nt_ratio["index"][c][i] for i in keep] for c in INDEX_ETFS},
     }
 
+    latest_report = max(
+        (e["latest_report_date"] for e in etfs if e.get("latest_report_date")),
+        default=None,
+    )
     data = {
         "generated_at": now_bjt().strftime("%Y-%m-%d %H:%M"),
         "latest_share_date": latest_share_date,
@@ -712,9 +736,10 @@ def build_data():
         "index_prices": index_prices,
         "nt_ratio": nt_ratio,
         "etfs": etfs,
+        "universe_codes": sorted(universe_codes),
         "notes": {
-            "total": "总份额为沪市口径（上交所逐日披露）；深市ETF份额自部署日起累积，表中单独展示变化",
-            "holders": "十大持有人仅在半年报/年报披露，最新占比最长可能滞后 6 个月",
+            "total": "总份额为当前标的池中的沪市口径（上交所逐日披露）；深市ETF份额自部署日起累积，表中单独展示变化",
+            "holders": "十大持有人仅在半年报/年报披露；当前最新报告期为 %s" % (latest_report or "—"),
         },
     }
     os.makedirs(DATA_DIR, exist_ok=True)

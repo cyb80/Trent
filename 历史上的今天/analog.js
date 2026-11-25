@@ -33,7 +33,23 @@
   }
 
   var DATA_DATE = (D.indices['沪深300'] || {}).date || '';
-  var LIVE = !!(SNAP && SNAP.indices && SNAP.trade_date > DATA_DATE);
+  function bjToday() {
+    var d = new Date();
+    return new Date(d.getTime() + (d.getTimezoneOffset() + 480) * 60000);
+  }
+  function dateOnly(d) {
+    function p2(x) { return x < 10 ? '0' + x : '' + x; }
+    return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+  }
+  function snapshotIsFresh() {
+    if (!SNAP || !SNAP.indices || !SNAP.intraday) return false;
+    if (SNAP.trade_date !== dateOnly(bjToday())) return false;
+    var hm = String(SNAP.indices['沪深300'] && SNAP.indices['沪深300'].price_time || '').split(':');
+    if (hm.length < 2) return false;
+    var minute = parseInt(hm[0], 10) * 60 + parseInt(hm[1], 10);
+    return (570 <= minute && minute <= 690) || (780 <= minute && minute <= 900);
+  }
+  var LIVE = !!(SNAP && SNAP.trade_date > DATA_DATE && snapshotIsFresh());
 
   function byIdx(name) { return D.indices[name] || D.indices['沪深300']; }
 
@@ -100,7 +116,7 @@
     h += '<span>模型生成 ' + D.updated + '</span>';
     h += '<span>相似日样本 ' + (byIdx(state.idx).n_days || 0) + ' 个交易日（自 ' +
       (byIdx(state.idx).first_date || '') + '）</span>';
-    if (LIVE) h += '<span class="tag-live">盘中数字随价格变动，收盘后以正式结果为准</span>';
+    if (LIVE) h += '<span class="tag-live">盘中只更新 KPI、状态和指数涨跌；概率锥、相似日分布和回测图仍为收盘数据</span>';
     el.innerHTML = h;
   }
 
@@ -325,7 +341,8 @@
       ' 条示例路径的起点（两两间隔 ≥20 个交易日），<b>' + pTop.length +
       '</b> 个橙点是权重最高的相似日（距离核 × 时间衰减）。' +
       '位置只是“日期落点”，是否相似由 8 维状态距离决定——同一价位的两次行情可能状态完全不同。<br/>' +
-      '拖动下方滑块可缩放时间范围。';
+      '拖动下方滑块可缩放时间范围。' +
+      (LIVE ? '<br/><span style="color:#e65100;">当前为盘中快照：快照不提供相似日散点，图形仍展示最近一次正式数据的相似日位置。</span>' : '');
   }
 
   // ---------------------------------------------------------------- 分块相似日位置
@@ -530,7 +547,8 @@
   function renderBlocks() {
     var name = state.idx;
     var o = byIdx(name);
-    var bl = o.blocks || {};
+    var snap = liveFor(name);
+    var bl = (snap && snap.blocks) ? snap.blocks : (o.blocks || {});
     var last = o.block_last || {};
     var rows = '';
     ['trend', 'momentum', 'vol', 'valuation', 'sentiment', 'volume', 'macro', 'basis'].forEach(function (k) {
@@ -699,10 +717,10 @@
       '重叠样本带来的「独立信息少于样本数」问题，改由收缩强度（按 h 折算独立样本）与 90% 置信区间体现。<br/>' +
       '<b>1.3 关于图上的灰线</b>：示例路径改为从更大的候选池（按距离取前 1000）里挑选，规则是距离优先、两两间隔 ≥20 个交易日，最多 50 条。' +
       '它只改变「看得见的形态」——概率、分位、赔率、MFE/MAE 仍全部由 Top200 加权邻居计算，数值不受影响。<br/>' +
-      '<b>2. 相似度</b>：每个块先按自身尺度归一，再块内取特征差的均方平均，最后按块权重加权，得到「今天」与历史每一天的距离。<br/>' +
+      '<b>2. 相似度</b>：每个块先按自身尺度归一，再块内取特征差的均方平均，最后按块权重加权，得到「今天」与历史每一天的距离；块内至少覆盖当前可用特征的 60% 才参与距离计算。<br/>' +
       '<b>3. 邻居</b>：只在 <code>s ≤ t - max(25, h)</code> 的历史日中挑选最近的 <code>' + D.method.topk +
       '</code> 个，权重 = 高斯核（尺度取最近邻距离中位数）× 时间衰减（半衰期 ' + D.method.decay_halflife +
-      ' 个交易日），越近的历史权重越高。<br/>' +
+      ' 个交易日），越近的历史权重越高；页面表格只展示权重最高的 12 条，模型计算仍使用全部 TopK 邻居。<br/>' +
       '<b>4. 概率</b>：邻居之后 h 个交易日的涨跌频率即为经验概率，再按独立样本量向「截至今日的无条件上涨频率」收缩' +
       '（重叠窗口按 20 日折算独立样本，长周期更依赖基准概率），90% 置信区间由 Beta 后验给出。<br/>' +
       '<b>5. 空间</b>：邻居的前瞻收益按 <code>σ今日 / σ当时</code> 缩放（限制 0.35~2.5 倍）后取加权分位（10/25/50/75/90），' +
@@ -711,7 +729,7 @@
       '中证1000 另用 MO 期权反算的 30 天 IV 折算区间。<br/>' +
       '<b>7. 回测</b>：2016 年起每 5 个交易日滚动一次，严格只使用当时可见信息，评估 Brier 分数、方向命中率与可靠性分箱。' +
       '注意长周期样本高度重叠（240 日仅有约 2 段独立行情），指标仅供参考。<br/>' +
-      '<b>8. 更新</b>：交易日 14:30 生成盘中快照（只用实时价临时替换当日 K 线，不写入训练样本），收盘后 15:05 之后生成正式结果。';
+      '<b>8. 更新</b>：交易日 14:25 生成盘中快照（只用实时价临时替换当日 K 线，不写入训练样本），收盘后 16:30 生成正式结果。';
   }
 
   function renderAll() {

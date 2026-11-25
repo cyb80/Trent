@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ETF国家队看板 - 量化择时</title>
 <link rel="stylesheet" href="css/style.css">
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="js/echarts.min.js"></script>
 <style>
 .page-head { padding: 28px 0 18px; }
 .page-head h2 { font-size: 1.5rem; color: #1a237e; margin-bottom: 6px; }
@@ -120,11 +120,11 @@
               <th data-key="code">代码</th>
               <th data-key="name">名称</th>
               <th data-key="latest_share">最新份额(亿份)</th>
-              <th data-key="c1d">1日</th>
-              <th data-key="c1w">1周</th>
-              <th data-key="c1m">1月</th>
-              <th data-key="c3m">3月</th>
-              <th data-key="c1y">1年</th>
+              <th data-key="c1d">份额1日</th>
+              <th data-key="c1w">份额1周</th>
+              <th data-key="c1m">份额1月</th>
+              <th data-key="c3m">份额3月</th>
+              <th data-key="c1y">份额1年</th>
               <th data-key="nt_hold_ratio">国家队占比</th>
               <th data-key="nt_hold_change">持仓变化</th>
               <th data-key="latest_report_date">报告期</th>
@@ -148,7 +148,7 @@
 
     <div class="panel">
       <div class="panel-head">
-        <h3 id="detail-title">价格与份额</h3>
+        <h3>价格与份额</h3>
         <div class="range-btns" id="detail-range">
           <button data-days="30">1月</button>
           <button data-days="90">3月</button>
@@ -196,6 +196,10 @@
   var s = document.createElement('script');
   s.src = 'data/etf_nt_data.js?t=' + Math.floor(Date.now() / 300000);
   s.onload = function () { document.dispatchEvent(new Event('etf-nt-ready')); };
+  s.onerror = function () {
+    var el = document.getElementById('meta-line');
+    if (el) el.textContent = '数据脚本加载失败，请检查网络或重新运行 fetch_etf_nt.py';
+  };
   document.head.appendChild(s);
 })();
 </script>
@@ -208,6 +212,11 @@ function initEtfNt() {
   }
 
   function fmtNum(v, d) { return v == null ? '—' : v.toFixed(d); }
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
   function fmtPct(v) {
     if (v == null) return '—';
     var s = (v > 0 ? '+' : '') + v.toFixed(2) + '%';
@@ -421,7 +430,7 @@ function initEtfNt() {
       var mktTag = r.market === 'sz' ? '<span class="tag-mkt">深</span>' : '';
       return '<tr data-code="' + r.code + '">' +
         '<td class="code">' + r.code + '</td>' +
-        '<td class="name">' + r.name + mktTag + newTag + '</td>' +
+        '<td class="name">' + esc(r.name) + mktTag + newTag + '</td>' +
         '<td>' + fmtNum(r.latest_share, 2) + '</td>' +
         '<td class="' + pctClass(r.c1d) + '">' + fmtPct(r.c1d) + '</td>' +
         '<td class="' + pctClass(r.c1w) + '">' + fmtPct(r.c1w) + '</td>' +
@@ -478,7 +487,7 @@ function initEtfNt() {
   var detailDays = 365;
 
   function renderDetail(days) {
-    document.getElementById('detail-title').textContent =
+    document.querySelector('#detail h3').textContent =
       '价格与份额（' + D.price_dates[pr.start] + ' ~ ' + D.price_dates[D.price_dates.length - 1] + '）';
     var start = Math.max(dateCutoff(D.price_dates, days), pr.start);
     var pDates = D.price_dates.slice(start);
@@ -547,7 +556,7 @@ function initEtfNt() {
       var chgCls = h.prev_amount == null ? 'flat' : pctClass(h.chg);
       return '<tr' + cls + '>' +
         '<td>' + (i + 1) + '</td>' +
-        '<td class="name">' + h.name + tag + '</td>' +
+        '<td class="name">' + esc(h.name) + tag + '</td>' +
         '<td>' + fmtNum(h.amount / 1e8, 2) + '</td>' +
         '<td>' + fmtNum(h.ratio, 2) + '%</td>' +
         '<td>' + (h.prev_amount == null ? '—' : fmtNum(h.prev_amount / 1e8, 2)) + '</td>' +

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RSRS择时指标 - 量化择时</title>
 <link rel="stylesheet" href="css/style.css">
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="js/echarts.min.js"></script>
 <style>
 .chart-container { height: 520px; }
 .perf-table {
@@ -187,7 +187,7 @@
 
       // 指标线 + 阈值线 (下方面板)
       series.push({
-        name: STRAT_NAMES[i],
+        name: STRAT_NAMES[i] + ' 指标',
         type: 'line',
         xAxisIndex: 1,
         yAxisIndex: 1,
@@ -353,6 +353,8 @@
     var ds = json[firstKey].data_status || {};
     document.getElementById('data-source').textContent =
       '4种RSRS策略回测对比 | 参数N=16~19, M=600~800, 各策略各指数独立阈值 | 数据来源: akshare' +
+      ' | 年化/波动按252日, 夏普无风险利率3%' +
+      ' | 回测按收盘价近似收盘前执行(非严格T+1)' +
       (ds.spot_last ? ' | 现货截止 ' + ds.spot_last : '') +
       (ds.futures_last ? ' | 期货截止 ' + ds.futures_last : '') +
       (ds.stale ? ' | 数据缺失 ' + ds.missing_days + ' 个交易日' : '') +

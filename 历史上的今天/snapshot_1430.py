@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-历史上的今天 —— 14:30 盘中快照
+历史上的今天 —— 14:25 盘中快照
 
 用盘中实时价（东方财富 → 腾讯 兜底）构造"今天"的临时 K 线，重算相似日概率/空间，
 写入 历史上的今天/analog_snapshots.js。同日多次运行只保留最后一次。
@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import datetime as dt
+import re
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,45 @@ SNAP_PATH = os.path.join(A.BASE, 'analog_snapshots.js')
 EAST_PUSH = ('https://push2.eastmoney.com/api/qt/stock/get?secid={secid}'
              '&invt=2&fltt=2&fields=f43,f44,f45,f46,f47,f57,f58,f60,f86')
 TENCENT_Q = 'https://qt.gtimg.cn/q={sym}'
+
+
+def _parse_quote_time(value):
+    """把东财/腾讯时间戳统一成北京时间（naive datetime）。"""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+
+    # 东财 f86 是 Unix 时间戳，可能是秒或毫秒。
+    if re.fullmatch(r'\d{10,13}', s):
+        ts = float(s)
+        if ts > 1e12:
+            ts /= 1000.0
+        try:
+            return dt.datetime.fromtimestamp(ts, tz=dt.timezone(dt.timedelta(hours=8))).replace(tzinfo=None)
+        except (OverflowError, OSError, ValueError):
+            return None
+
+    # 腾讯通常返回 YYYYMMDDHHMMSS 或 YYYYMMDDHHMM。
+    digits = re.sub(r'\D', '', s)
+    if len(digits) >= 14:
+        try:
+            return dt.datetime.strptime(digits[:14], '%Y%m%d%H%M%S')
+        except ValueError:
+            return None
+    if len(digits) >= 12:
+        try:
+            return dt.datetime.strptime(digits[:12], '%Y%m%d%H%M')
+        except ValueError:
+            return None
+    return None
+
+
+def _in_trading_session(now):
+    """只允许 09:30–11:30 与 13:00–15:00 的盘中快照。"""
+    hm = now.hour * 60 + now.minute
+    return (9 * 60 + 30 <= hm <= 11 * 60 + 30) or (13 * 60 <= hm <= 15 * 60)
 
 
 def _http(url, encoding='utf-8'):
@@ -40,9 +80,12 @@ def quote_eastmoney(code):
         price = float(d.get('f43'))
         if not np.isfinite(price) or price <= 0:
             return None
+        quote_time = _parse_quote_time(d.get('f86'))
         return {'price': price, 'open': float(d.get('f46')), 'high': float(d.get('f44')),
                 'low': float(d.get('f45')), 'volume': None, 'prev': float(d.get('f60')),
-                'source': '东方财富', 'time': A._beijing_now().strftime('%H:%M:%S')}
+                'source': '东方财富',
+                'time': quote_time.strftime('%H:%M:%S') if quote_time else '',
+                'quote_date': quote_time.strftime('%Y-%m-%d') if quote_time else None}
     except Exception as e:
         print('  [warn] 东财实时失败 %s: %s' % (code, e))
         return None
@@ -56,9 +99,12 @@ def quote_tencent(code):
         price = float(seg[3])
         if not np.isfinite(price) or price <= 0:
             return None
+        quote_time = _parse_quote_time(seg[30] if len(seg) > 30 else '')
         return {'price': price, 'open': float(seg[5]), 'high': float(seg[33]),
                 'low': float(seg[34]), 'volume': None, 'prev': float(seg[4]),
-                'source': '腾讯', 'time': seg[30][-8:] if len(seg) > 30 else ''}
+                'source': '腾讯',
+                'time': quote_time.strftime('%H:%M:%S') if quote_time else '',
+                'quote_date': quote_time.strftime('%Y-%m-%d') if quote_time else None}
     except Exception as e:
         print('  [warn] 腾讯实时失败 %s: %s' % (code, e))
         return None
@@ -67,7 +113,7 @@ def quote_tencent(code):
 def get_quote(code):
     for fn in (quote_eastmoney, quote_tencent):
         q = fn(code)
-        if q and q.get('price'):
+        if q and q.get('price') and q.get('quote_date'):
             return q
     return None
 
@@ -85,20 +131,33 @@ def with_intraday_bar(df, q, today):
 def main():
     now = A._beijing_now()
     today = now.strftime('%Y-%m-%d')
-    print('== 14:30 快照 %s ==' % now.strftime('%Y-%m-%d %H:%M:%S'))
+    print('== 14:25 快照 %s ==' % now.strftime('%Y-%m-%d %H:%M:%S'))
+    if not _in_trading_session(now):
+        print('[跳过] 当前不在交易时段，保留原快照')
+        return 1
+
+    quotes = {}
+    bad = []
+    for code, name, _ in A.INDEXES:
+        q = get_quote(code)
+        if not q or q.get('quote_date') != today:
+            bad.append('%s(%s)' % (name, (q or {}).get('quote_date') or '无日期'))
+        else:
+            quotes[code] = q
+    if bad:
+        print('[跳过] 报价不是当日有效盘中行情: %s，保留原快照' % ', '.join(bad))
+        return 1
+
     ctx = A.build_context()
     out = {
         'updated': now.strftime('%Y-%m-%d %H:%M'),
         'trade_date': today,
-        'intraday': now.weekday() < 5 and (now.hour, now.minute) < (15, 5),
+        'intraday': True,
         'indices': {},
     }
     ok = 0
     for code, name, product in A.INDEXES:
-        q = get_quote(code)
-        if not q:
-            print('  [跳过] %s 无实时报价' % name)
-            continue
+        q = quotes[code]
         df = A.load_index_frame(code)
         df = A.merge_patch(df, ctx['patch'], code)
         df = with_intraday_bar(df, q, today)
@@ -144,7 +203,7 @@ def main():
     out['history'] = hist
 
     with open(SNAP_PATH, 'w', encoding='utf-8') as f:
-        f.write('// 历史上的今天 —— 14:30 盘中快照，由 历史上的今天/snapshot_1430.py 自动生成\n')
+        f.write('// 历史上的今天 —— 14:25 盘中快照，由 历史上的今天/snapshot_1430.py 自动生成\n')
         f.write('window.ANALOG_SNAPSHOT = ')
         f.write(json.dumps(out, ensure_ascii=False, separators=(',', ':')))
         f.write(';\n')

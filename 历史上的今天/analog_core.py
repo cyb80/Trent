@@ -18,6 +18,7 @@ import re
 import json
 import math
 import datetime as dt
+import calendar
 
 import numpy as np
 import pandas as pd
@@ -72,7 +73,7 @@ TENCENT_KLINE = ('https://web.ifzq.gtimg.cn/appstock/app/fqkline/get'
 # ----------------------------------------------------------------------------
 
 def _beijing_now():
-    return dt.datetime.utcnow() + dt.timedelta(hours=8)
+    return dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).replace(tzinfo=None)
 
 
 def _market_closed_today(now=None):
@@ -342,6 +343,28 @@ def load_iv():
     return iv[~iv.index.isna()].sort_index()
 
 
+def _third_friday(year, month):
+    fridays = [w[calendar.FRIDAY] for w in calendar.monthcalendar(year, month)
+               if w[calendar.FRIDAY]]
+    return pd.Timestamp(year, month, fridays[2])
+
+
+def _next_trading_day(base, trade_dates):
+    """到期日遇非交易日时，顺延到交易日历中的下一个交易日。"""
+    if not len(trade_dates):
+        out = base
+        while out.weekday() >= 5:
+            out += pd.Timedelta(days=1)
+        return out
+    i = int(trade_dates.searchsorted(base, side='left'))
+    if i < len(trade_dates):
+        return trade_dates[i]
+    out = base
+    while out.weekday() >= 5:
+        out += pd.Timedelta(days=1)
+    return out
+
+
 def load_futures():
     path = os.path.join(DATA, 'v6_futures.csv')
     if not os.path.exists(path):
@@ -351,7 +374,16 @@ def load_futures():
     d['ym'] = d['contract'].astype(str).str[2:]
     d['date'] = pd.to_datetime(d['date'], errors='coerce')
     d = d.dropna(subset=['date', 'close'])
-    d['exp'] = pd.to_datetime(d['ym'], format='%y%m', errors='coerce') + pd.offsets.MonthEnd(0)
+    trade_dates = pd.DatetimeIndex(sorted(d['date'].dropna().unique()))
+    expiry = {}
+    for code in d['contract'].astype(str).dropna().unique():
+        mt = re.match(r'^(?:IH|IF|IC|IM)(\d{2})(\d{2})$', code)
+        if not mt:
+            continue
+        year, month = 2000 + int(mt.group(1)), int(mt.group(2))
+        base = _third_friday(year, month)
+        expiry[code] = _next_trading_day(base, trade_dates)
+    d['exp'] = d['contract'].astype(str).map(expiry)
     return d.dropna(subset=['exp'])
 
 def _lagged_daily(mser, dates, win=M_WIN, lag_days=45, max_ffill=75, min_periods=24):
@@ -496,8 +528,11 @@ def build_features(code, name, product, df, ctx):
     sb = ctx['sb'].get(SB_NAME[name])
     sbz = (_lagged_daily(sb, dates, lag_days=45, max_ffill=45)
            if sb is not None and len(sb) > 24 else pd.Series(np.nan, index=dates))
-    pbz = _roll_z(pb, Z_WIN)
-    pbz = pbz.where(_daily_join(pb.dropna(), dates).notna())
+    pbz = (
+        _lagged_daily(pb.dropna(), dates, win=M_WIN, lag_days=45,
+                      max_ffill=80, min_periods=24)
+        if pb.notna().sum() > 24 else pd.Series(np.nan, index=dates)
+    )
     pe = pd.Series(np.asarray(d['pe'], dtype=float), index=dates)
     # PE_TTM 为月频快照（约 260 个观测），按 60 期滚动标准化并滞后发布
     pez = (_lagged_daily(pe.dropna(), dates, win=M_WIN, lag_days=45, max_ffill=80, min_periods=24)
@@ -605,7 +640,10 @@ def _block_dists(mats, t):
         diff = np.where(m, sub - v, 0.0)
         cnt = m.sum(axis=1)
         d = (diff ** 2).sum(axis=1) / np.maximum(cnt, 1)
-        ok = (cnt > 0) & np.isfinite(d)
+        # 至少覆盖当前可用特征的大部分，避免仅靠一个特征
+        # 就进入最近邻排序，导致不同历史日的距离不可比。
+        min_cnt = max(1, int(np.ceil(0.6 * int(okf.sum()))))
+        ok = (cnt >= min_cnt) & np.isfinite(d)
         out[k] = (d, ok)
     return out
 
@@ -862,12 +900,12 @@ def analyze(feat, mats, t, horizons=HORIZONS, detail=False, iv_series=None,
                 'dist': _r(ds[i]),
                 'w': _r(w[i], 4),
                 'ret': _r(ret[i]),
-                'path': [_r(close[min(sel[i] + j, n - 1)] / close[sel[i]] - 1.0) for j in range(0, min(h, 120) + 1)],
+                'path': [_r(close[min(sel[i] + j, n - 1)] / close[sel[i]] - 1.0) for j in range(0, h + 1)],
             } for i in nb]
             # 图上画的灰线：从更大候选池里挑时间分散的 DISPLAY_K 条（不影响上面的数值）
             item['disp'] = [{
                 'date': dates[s].strftime('%Y-%m-%d'),
-                'path': [_r(close[min(s + j, n - 1)] / close[s] - 1.0) for j in range(0, min(h, 120) + 1)],
+                'path': [_r(close[min(s + j, n - 1)] / close[s] - 1.0) for j in range(0, h + 1)],
             } for s in _display_idx(dist, t, h, n)]
 
         cross = {}
@@ -985,7 +1023,7 @@ def run(verbose=True):
             'topk': TOPK,
             'z_win': Z_WIN,
             'horizons': HORIZONS,
-            'decay_halflife': 968,
+            'decay_halflife': DECAY_HALFLIFE,
         },
         'indices': {},
         'backtest': {},

@@ -15,7 +15,7 @@ import calendar
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
@@ -33,6 +33,7 @@ SPOT_SECID = {"IH": "1.000016", "IF": "1.000300", "IC": "1.000905", "IM": "1.000
 FACTOR, ANN = 365, 252
 START = "2018-01-01"
 V6_LO, V6_SH = -0.05, 0.01
+BJ_TZ = timezone(timedelta(hours=8))
 
 
 # ---------------- 数据 ----------------
@@ -77,11 +78,25 @@ def month_ends(cal, start):
     return pd.DatetimeIndex(pd.Series(d, index=d).groupby([d.year, d.month]).max().values)
 
 
+def last_business_day(year, month):
+    """月末交易日估算，用于数据尚未推进到真实月末时的最后一期。"""
+    d = pd.Timestamp(year, month, calendar.monthrange(year, month)[1])
+    while d.weekday() >= 5:
+        d -= pd.Timedelta(days=1)
+    return d
+
+
 # ---------------- 回测主体 ----------------
 def run_v6(panel_f, panel_s, cal):
     expiry_of = make_expiry(cal)
     expiry = {c: expiry_of(c) for c in panel_f.columns}
     rebal = month_ends(cal, START)
+    if len(rebal):
+        last_month_end = last_business_day(cal[-1].year, cal[-1].month)
+        if rebal[-1] < last_month_end:
+            # 不能把数据截断日当作月末调仓日，否则最后一段可能选中
+            # 在真实调仓日前就到期的合约。
+            rebal = rebal[:-1].append(pd.DatetimeIndex([last_month_end]))
 
     recs, r_long, r_short = [], {}, {}
     for i in range(len(rebal) - 1):
@@ -103,7 +118,9 @@ def run_v6(panel_f, panel_s, cal):
         idx = panel_f.index[(panel_f.index > T) & (panel_f.index <= Tn)]
         seg = {}
         for tag, c in (("L", L[0]), ("S", S[0])):
-            col = pd.concat([panel_f.loc[[T], c], panel_f.loc[idx, c].ffill()])
+            # 先把调仓日价格和持仓区间放在一起再 ffill，避免区间首日
+            # 无成交时丢失 T 日作为价格种子。
+            col = pd.concat([panel_f.loc[[T], c], panel_f.loc[idx, c]]).ffill()
             seg[tag] = col.pct_change().iloc[1:]
         r_long.update(seg["L"].to_dict())
         r_short.update(seg["S"].to_dict())
@@ -292,7 +309,7 @@ def main():
                             long_c=row["long_c"], long_b=round(float(row["long_b"]) * 100, 4),
                             short_c=row["short_c"], short_b=round(float(row["short_b"]) * 100, 4)))
     data = dict(
-        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        generated_at=datetime.now(BJ_TZ).strftime("%Y-%m-%d %H:%M:%S"),
         eval_start=dates[0], eval_end=dates[-1], lo=V6_LO * 100, sh=V6_SH * 100,
         data_status=data_status,
         factor=FACTOR, ann=ANN,

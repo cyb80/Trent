@@ -52,10 +52,18 @@ def fetch_margin():
     out["深融资买入额"] = _num(sz["融资买入额"])
     out["沪融资余额"] = _num(sh["融资余额"])
     out["深融资余额"] = _num(sz["融资余额"])
-    out["融资买入额"] = _num(sh["融资买入额"]).reindex(out.index).fillna(0) + \
-                        _num(sz["融资买入额"]).reindex(out.index).fillna(0)
-    out["融资余额"] = _num(sh["融资余额"]).reindex(out.index).fillna(0) + \
-                      _num(sz["融资余额"]).reindex(out.index).fillna(0)
+    # 沪深合计必须要求两边都有值。单边缺失时填 0 会把余额直接砍半，
+    # 随后 diff() 会产生数千亿级的伪融资净买入。
+    buy = pd.concat([
+        _num(sh["融资买入额"]).reindex(out.index),
+        _num(sz["融资买入额"]).reindex(out.index),
+    ], axis=1)
+    balance = pd.concat([
+        _num(sh["融资余额"]).reindex(out.index),
+        _num(sz["融资余额"]).reindex(out.index),
+    ], axis=1)
+    out["融资买入额"] = buy.sum(axis=1, min_count=2)
+    out["融资余额"] = balance.sum(axis=1, min_count=2)
     out = out.replace(0, np.nan)
     # 融资净买入 ≈ 融资余额日变化（口径：余额=买入-偿还）
     out["融资净买入"] = out["融资余额"].diff()

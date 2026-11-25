@@ -124,10 +124,11 @@ def main():
         if ok == 0:
             print("  [警告] 本月归档不可用，保留原数据")
             return 0
-        add = new[new["date"] > last]
-        print("  新增 %d 行 (%s ~ %s)" % (len(add), str(add["date"].min())[:10] if len(add) else "-",
-                                        str(add["date"].max())[:10] if len(add) else "-"))
-        df = pd.concat([cur, add], ignore_index=True)
+        # 不能只用 date > last：官方归档可能修订最近几个月的数据。
+        # 让新归档覆盖同键旧值，后面统一按 (date, contract) 去重。
+        print("  回补 %d 行 (%s ~ %s)" % (len(new), str(new["date"].min())[:10],
+                                        str(new["date"].max())[:10]))
+        df = pd.concat([cur, new], ignore_index=True)
     else:
         print("状态文件不存在 -> 全量回填 %d-%02d ~ %d-%02d"
               % (BACKFILL_FROM[0], BACKFILL_FROM[1], now.year, now.month))

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IC/IM吃贴水·仅200日均线择时 - 量化择时</title>
 <link rel="stylesheet" href="css/style.css">
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="js/echarts.min.js"></script>
 <style>
   .chart-container { height: 460px; }
   /* 当前持仓建议面板 */
@@ -79,7 +79,7 @@
     <p>股指期货吃贴水 + 200日均线长期趋势择时，动态调整 IC/IM 权重与总敞口</p>
   </div>
 
-  <!-- 当前持仓建议（盘中每30分钟按实时价重算） -->
+  <!-- 当前持仓建议（页面加载/刷新时按实时价重算） -->
   <div class="chart-card" style="margin-bottom:24px;">
     <h3>当前持仓建议 <span id="realtime-status" class="realtime-status"></span></h3>
     <div id="data-status" class="data-status ok" style="display:none;"></div>

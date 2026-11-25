@@ -87,6 +87,11 @@ jobs:
         continue-on-error: true
         run: python scripts/fetch_sentiment.py
 
+      # fetch_macro.py：月频宏观指标。数据源失败时沿用旧 sheet，不阻断部署。
+      - name: 更新宏观数据
+        continue-on-error: true
+        run: python scripts/fetch_macro.py
+
       # 隐含波动率/fetch_iv.py：中金所 MO 期权结算价 → Black-76 反算中证1000 IV（增量）。
       # 首次运行回填 2022-07 起全部月份，之后只重算最近 3 个月；失败不阻断部署。
       - name: 反算中证1000隐含波动率
@@ -112,11 +117,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 准备 Pages 静态产物
+        run: |
+          rm -rf pages-artifact
+          mkdir -p pages-artifact/data
+          cp index.html stock_bond.html graham.html rsrs.html earn_discount.html v6_basis.html etf_nt.html pages-artifact/
+          cp -r css js pages-artifact/
+          cp data/*.js data/*.json pages-artifact/data/
+          cp -r "历史上的今天" pages-artifact/
+
       - name: 上传 Pages 产物
         id: upload
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: pages-artifact
 
       - name: 部署到 GitHub Pages
         id: deployment
@@ -158,7 +172,7 @@ jobs:
           pip install pandas numpy requests openpyxl
 
       # 东方财富实时行情为主, 腾讯兜底; 全部失败时保持原有快照不变
-      - name: 生成 14:30 盘中快照
+      - name: 生成 14:25 盘中快照
         continue-on-error: true
         run: python 历史上的今天/snapshot_1430.py
 
@@ -167,15 +181,24 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add "历史上的今天/analog_snapshots.js"
-          git diff --cached --quiet || git commit -m "chore: 14:30 相似日快照 $(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M') [skip ci]"
+          git diff --cached --quiet || git commit -m "chore: 14:25 相似日快照 $(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M') [skip ci]"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 准备 Pages 静态产物
+        run: |
+          rm -rf pages-artifact
+          mkdir -p pages-artifact/data
+          cp index.html stock_bond.html graham.html rsrs.html earn_discount.html v6_basis.html etf_nt.html pages-artifact/
+          cp -r css js pages-artifact/
+          cp data/*.js data/*.json pages-artifact/data/
+          cp -r "历史上的今天" pages-artifact/
+
       - name: 上传 Pages 产物
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: pages-artifact
 
       - name: 部署到 GitHub Pages
         uses: actions/deploy-pages@v4

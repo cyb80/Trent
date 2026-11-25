@@ -9,7 +9,7 @@
 
 这是一个**纯静态、无后端**的量化择时网站：
 
-- 页面全部是普通 HTML + 原生 JavaScript，图表使用 ECharts 5.5.0（CDN 引入）。
+- 页面全部是普通 HTML + 原生 JavaScript，图表使用 ECharts 5.5.0（本地 `js/echarts.min.js`）。
 - 所有行情/指标/回测结果由 Python 脚本提前算好，写成 `data/*.js` 中的 `window.XXX_DATA` 全局变量，页面用 `<script src>` 直接加载。这样不需要 `fetch()`，可以直接双击打开或部署到任意静态服务器。
 - 数据由 **GitHub Actions 每日定时抓取、计算、提交回仓库并部署到 GitHub Pages**。
 - 交易日 14:25 额外有一个盘中快照任务，为「历史上的今天」页提供当日实时概率。
@@ -49,6 +49,7 @@
 ├─ etf_nt.html                    # 国家队 ETF 看板
 ├─ css/style.css                  # 全站共享样式
 ├─ js/
+│  ├─ echarts.min.js              # 本地 ECharts 5.5.0
 │  ├─ rsrs_realtime.js            # RSRS 盘中预测值
 │  ├─ ma200_realtime.js           # 吃贴水实时持仓与图表
 │  └─ v6_realtime.js              # V6 实时排名、调仓建议与全部图表
@@ -67,7 +68,7 @@
 ├─ research/                      # 研究性脚本与结果（不参与部署）
 │  └─ outputs/
 ├─ docs/                          # 策略与指令文档
-├─ archive/                       # 归档：废弃指标、草稿、旧脚本
+├─ archive/                       # 归档：废弃指标、草稿、旧脚本和说明
 ├─ .github/workflows/deploy.yml   # 每日更新 + Pages 部署
 └─ .gitignore
 ```
@@ -87,7 +88,7 @@ python -m http.server 8000
 ```
 
 - 也可以直接双击 HTML 打开，但因为数据是 JS 全局变量，不依赖 `fetch()`，通常可以正常显示。
-- ECharts 来自 `cdn.jsdelivr.net`，离线环境需要把 ECharts 下载到本地并改引用。
+- ECharts 已放在本地 `js/echarts.min.js`，无需额外 CDN 连接。
 - 建议用 HTTP 服务方式预览，避免浏览器对本地文件的限制。
 
 ### 3.2 本地重新生成全部数据
@@ -107,7 +108,7 @@ python scripts/fetch_v6_futures.py    # 抓取中金所全月份合约日行情
 python scripts/gen_v6_backtest.py     # 生成 V6 回测与实时持仓数据
 python scripts/fetch_etf_nt.py        # 生成国家队 ETF 看板数据
 python scripts/fetch_sentiment.py     # 生成情绪数据（供相似日模型）
-python scripts/fetch_macro.py         # 生成宏观数据（手动运行，CI 不调用）
+python scripts/fetch_macro.py         # 生成宏观数据（CI 每日运行，失败回退旧 sheet）
 python 隐含波动率/fetch_iv.py          # 生成隐含波动率（当前页面未接入）
 python 历史上的今天/analog_core.py      # 生成历史上的今天主数据
 python 历史上的今天/snapshot_1430.py    # 可选：生成盘中快照
@@ -176,7 +177,7 @@ python 历史上的今天/snapshot_1430.py    # 可选：生成盘中快照
 - 图上 markLine 保留 4 位小数。
 - 数据来自 `data/graham_data.js`（`window.GRAHAM_DATA`），同样由 `scripts/fetch_data.py` 生成。
 
-> 注意：首页卡片文案与 `docs/指令1.md` 里把公式写成了“10年期国债收益率 / PE_TTM”，与当前实现 `(1/PE) / 收益率` 不一致。**以本页与脚本实现为准。**
+> 公式以 `(1 / PE_TTM) × 100 / 10年期国债收益率(%)` 为准，首页、页面和脚本已同步。
 
 ### 4.4 RSRS 择时 `rsrs.html`
 
@@ -289,7 +290,7 @@ RSRS_成交额加权钝化 = z_w × R²_w^(4 × ret_q)
 
 - 东方财富实时价（10 秒超时）→ 腾讯 JSONP 兜底；两腿只要有一条失败就不切换实时快照。
 - 实时价拼接最近 430 日收盘，重新算 MA200、确认趋势、60 日波动与权重。
-- **没有定时器**，只在页面加载/刷新时重算。页面文案中的“每 30 分钟更新”与实现不符。
+- **没有定时器**，只在页面加载/刷新时重算；入口文案已按这一行为修正。
 - `data_status.stale=true` 时：持仓标签显示“数据缺失”，权重与两腿状态显示 `—`，图表标题标注“现货缺失，已截止 …”，不给出持仓建议。
 
 ### 4.6 股指期货基差轮动（V6）`v6_basis.html`
@@ -523,7 +524,7 @@ flowchart LR
 | `scripts/gen_v6_backtest.py` | V6 基差轮动回测与实时持仓 | `v6_futures.csv`、xlsx | `v6_backtest.js`、`v6_live.js` | 是（第 6 步） |
 | `scripts/fetch_etf_nt.py` | 国家队 ETF 份额/价格/持有人 | universe、CSV、交易所接口 | `etf_nt_data.js` | 是（第 7 步，允许失败） |
 | `scripts/fetch_sentiment.py` | 两融、QVIX、派生市场行情 | akshare、xlsx | `情绪数据序列.xlsx` | 是（第 8 步，允许失败） |
-| `scripts/fetch_macro.py` | 9 个月频宏观指标 | akshare | `宏观数据序列.xlsx` | **否，手动运行** |
+| `scripts/fetch_macro.py` | 9 个月频宏观指标 | akshare | `宏观数据序列.xlsx` | 是（失败回退旧 sheet） |
 | `隐含波动率/fetch_iv.py` | MO 期权反算中证 1000 IV | 中金所归档、`iv_history.csv` | `iv_data.js`、`iv_history.csv` | 是（第 9 步，允许失败） |
 | `历史上的今天/analog_core.py` | 相似日模型、概率、校准回测 | xlsx、情绪/宏观/IV/基差 | `analog_data.js` | 是（第 10 步，允许失败） |
 | `历史上的今天/snapshot_1430.py` | 14:25 盘中快照 | 实时行情、上下文 | `analog_snapshots.js` | 独立 job |
@@ -634,6 +635,7 @@ flowchart LR
 | `data/etf_nt_universe.json` | 手工维护 | `fetch_etf_nt.py` | 46 只国家队 ETF 标的池 |
 | `data/etf_nt_share.csv` | `fetch_etf_nt.py` | 同上 | 份额长表（code,date,share_yi） |
 | `data/etf_nt_price.csv` | `fetch_etf_nt.py` | 同上 | 价格长表（code,date,close） |
+| `data/etf_nt_price.meta.json` | `fetch_etf_nt.py` | 同上 | 价格复权口径标记，切换口径时自动全量重拉 |
 | `data/etf_nt_holder.json` | `fetch_etf_nt.py` | 同上 | 十大持有人缓存 |
 | `data/etf_nt_data.js` | `fetch_etf_nt.py` | `etf_nt.html` | 约 1.3MB 看板数据 |
 | `data/情绪数据序列.xlsx` | `fetch_sentiment.py` | `analog_core.py` | 两融、QVIX、市场行情 |
@@ -686,7 +688,7 @@ flowchart LR
 1. `build-and-deploy`（非 14:25 快照时运行）
    - 权限：`contents: read`、`pages: write`、`id-token: write`、`actions: read`。
    - Python 3.13；安装 `pandas numpy akshare==1.20.39 requests`。
-   - 步骤顺序：`fetch_rsrs` → `fetch_data` → `fetch_ma200` → `gen_ma200_backtest` → `fetch_v6_futures`（允许失败）→ `gen_v6_backtest` → `fetch_etf_nt`（允许失败）→ `fetch_sentiment`（允许失败）→ `fetch_iv`（允许失败）→ `analog_core`（允许失败）→ 提交数据 → 上传 Pages artifact（`path: .`）→ `actions/deploy-pages@v4` → 检查 `data/fetch_status.json`，`ok=false` 时 `exit 1` 让任务标红。
+   - 步骤顺序：`fetch_rsrs` → `fetch_data` → `fetch_ma200` → `gen_ma200_backtest` → `fetch_v6_futures`（允许失败）→ `gen_v6_backtest` → `fetch_etf_nt`（允许失败）→ `fetch_sentiment`（允许失败）→ `fetch_macro`（允许失败）→ `fetch_iv`（允许失败）→ `analog_core`（允许失败）→ 提交数据 → 准备 Pages 静态产物（`pages-artifact/`）→ 上传 → `actions/deploy-pages@v4` → 检查 `data/fetch_status.json`，`ok=false` 时 `exit 1` 让任务标红。
    - 提交范围：`git add data/`、`scripts/fetch_rsrs.py`、`隐含波动率/iv_history.csv`、`历史上的今天/`；提交信息带 `[skip ci]`。
 
 2. `snapshot-1430`（仅 14:25 cron 触发）
@@ -695,7 +697,7 @@ flowchart LR
 
 ### 7.3 失败语义
 
-- 第 5、7、8、9、10 步即使失败也不会阻断后续步骤与部署，页面会继续使用上一份数据。
+- 第 5、7、8、9、10、11 步即使失败也不会阻断后续步骤与部署，页面会继续使用上一份数据。
 - 最后一步读取 `fetch_status.json`：如果 `ok=false`，job 标红并发邮件，但此时数据提交与 Pages 部署已经完成。
 - 数据缺失不会导致页面报错，页面会显示橙色“数据缺失”提示。
 
@@ -744,15 +746,15 @@ python research/test_pipeline.py
 
 1. **V6 回测未计任何交易成本**（手续费、冲击成本、保证金利息、展期成本），且两腿各 100% 名义，实际约 2 倍杠杆。
 2. **V6 的 −5% / +1% 阈值是在样本内选定的**，存在过拟合风险；页面上可以改阈值做敏感性观察，但不会重新挑选历史合约。
-3. **RSRS 回测不是严格 T+1**：当日信号当日即参与收益计算，只有交易次数使用 `shift(1)`。
-4. **吃贴水实时脚本没有定时刷新**，页面文案“盘中每 30 分钟更新”与实现不符；实际是刷新页面才更新。
+3. **RSRS 回测采用收盘价近似的当日执行口径**：信号在收盘前按实时价交易、回测用收盘价计算收益，因此与严格 T+1 不同，存在执行价误差；当前按你的实际操作方式保留该口径。
+4. **吃贴水实时脚本没有定时刷新**，页面只在加载/刷新时重算；入口文案已同步。
 5. **历史上今天页面的 `method.decay_halflife` 写作 968，但真实时间衰减半衰期是 2000 日**，属展示字段不一致。
-6. **格雷厄姆指数公式存在文案不一致**：首页卡片与 `docs/指令1.md` 写的是“10Y 收益率 / PE”，实际实现与页面说明是“(1/PE) / 10Y 收益率”。
+6. **格雷厄姆指数公式已在首页、页面与 `docs/指令1.md` 统一**：`(1/PE_TTM) × 100 / 10Y收益率`。
 7. **隐含波动率数据尚未接入页面**：`data/iv_data.js` 仅被 `analog_core.py` 用于交叉验证。
 8. **深交所 ETF 份额只有当日快照**，历史只能从部署日起逐日累积，无法回填。
 9. **PE 为月频数据**，股债性价比与格雷厄姆曲线整体是月频；收盘价与国债为日频，已对齐。
-10. **页面依赖 ECharts CDN**，离线环境需要本地化 ECharts。
-11. **Pages artifact 上传的是整个仓库目录**（`path: .`），包含 `scripts/`、`research/`、`docs/` 等源码；目前没有敏感信息，但新增文件时需注意。
+10. **ECharts 已本地化**，页面不再依赖 ECharts CDN。
+11. **Pages artifact 现在使用显式静态白名单**（`pages-artifact/`），只包含页面、`css/`、`js/`、`data/` 的 JS/JSON 和历史数据目录。
 12. **归档脚本不可直接运行**（import 路径已变），详见第 9 节。
 13. `data/` 下部分文件较大（`rsrs_data.js` 约 3.4MB、`analog_data.js` 约 1.5MB、`etf_nt_data.js` 约 1.3MB），首次加载页面会有相应下载开销。
 
